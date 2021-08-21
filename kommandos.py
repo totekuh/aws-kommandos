@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-from pprint import pprint
 import os
+from pprint import pprint
+
 import boto3
 
 # ubuntu server 20.04
@@ -110,16 +111,32 @@ def get_arguments():
                              f"Default is {DEFAULT_INSTANCE_NAME}")
     options = parser.parse_args()
     if options.start and not options.security_group_id:
-        parser.error('The --security-group-id arg cannot be blank when requesting to start a new instance. '
+        parser.error('The --security-group-id arg cannot be blank when requesting a new instance. '
                      'Use --help for more info.')
     if options.terminate and options.terminate_all:
         parser.error("You must use either --terminate <instance-id> or --terminate-all. "
                      "Use --help for more info.")
     if (options.allow_inbound or options.allow_outbound or options.delete_inbound or options.delete_outbound) \
-        and not options.security_group_id:
+            and not options.security_group_id:
         parser.error('The --security-group-id argument must be provided whenever you wanna change the firewall rules. '
                      'Use --help for more info.')
     return options
+
+
+class FirewallRuleRequest:
+    def __init__(self, rule_from_command_line):
+        if ':' not in rule_from_command_line:
+            raise Exception('Invalid format of the firewall rule. Use --help to see an example.')
+        chunks = rule_from_command_line.split(':')
+        if len(chunks) != 3:
+            raise Exception('Invalid number of chunks in the rule. Use --help to see an example.')
+        if '/' not in chunks[0]:
+            raise Exception('Invalid port specification format. Use --help to see an example.')
+        port_specification = chunks[0].split('/')
+        self.port = port_specification[0]
+        self.protocol = port_specification[1]
+        self.ipv4_address = chunks[1]
+        self.description = chunks[2]
 
 
 class InstanceManager:
@@ -212,24 +229,19 @@ class InstanceManager:
 
     ### CREATE A NEW SECURITY GROUP
     def create_security_group(self):
-        # TODO: implement
-        pass
+        raise Exception('Not implemented yet')
 
-    def add_ingress_rule(self):
-        # TODO: implement
-        pass
+    def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+        raise Exception('Not implemented yet')
 
-    def add_egress_rule(self):
-        # TODO: implement
-        pass
+    def add_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+        raise Exception('Not implemented yet')
 
-    def delete_ingress_rule(self):
-        # TODO: implement
-        pass
+    def delete_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+        raise Exception('Not implemented yet')
 
-    def delete_egress_rule(self):
-        # TODO: implement
-        pass
+    def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+        raise Exception('Not implemented yet')
 
     ## AMI IMAGES
     def search_ami_images(self, query):
@@ -305,7 +317,6 @@ class InstanceManager:
                     inst['Name'] = name
 
                 pprint(inst, sort_dicts=False)
-                print(f"Connecting command: ssh ubuntu@{instance.public_ip_address} -i {key_pair_name}.pem")
         else:
             print('There are no running instances')
 
@@ -374,6 +385,20 @@ if __name__ == '__main__':
         server_manager.terminate_instance(instance_id=options.terminate)
     elif options.terminate_all:
         server_manager.terminate_all_running_instances()
+
+    # if (options.allow_inbound or options.allow_outbound or options.delete_inbound or options.delete_outbound):
+    if options.allow_inbound:
+        server_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(options.allow_inbound),
+                                        security_group_id=options.security_group_id)
+    if options.allow_outbound:
+        server_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(options.allow_outbound),
+                                       security_group_id=options.security_group_id)
+    if options.delete_inbound:
+        server_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(options.delete_inbound),
+                                           security_group_id=options.security_group_id)
+    if options.delete_outbound:
+        server_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(options.delete_outbound),
+                                          security_group_id=options.security_group_id)
 
     if options.stats:
         server_manager.print_running_instances()
