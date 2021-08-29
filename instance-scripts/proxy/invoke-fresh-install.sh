@@ -31,7 +31,7 @@ EOL
 
 sudo chown root:root microsocks.service &&
 sudo mv microsocks.service /usr/lib/systemd/system/microsocks.service &&
-sudo link ./microsocks /usr/bin/microsocks
+sudo link ./microsocks /usr/bin/microsocks &&
 
 sudo systemctl daemon-reload &&
 sudo systemctl enable microsocks &&
