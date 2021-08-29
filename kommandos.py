@@ -294,7 +294,7 @@ class AwsManager:
         raise Exception('Not implemented yet')
 
     def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        print(f"Authorizing '{firewall_rule_request}' on '{security_group_id}'")
+        print(f"Authorizing ingress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
             description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
         else:
@@ -328,15 +328,51 @@ class AwsManager:
                     print(response)
         except botocore.client.ClientError as e:
             if 'already exists' in f"{e}":
-                print(f"The requested rule '{firewall_rule_request}' already exists")
+                print(f"The requested ingress rule '{firewall_rule_request}' already exists")
             else:
                 print(f"{type(e)} - {e}")
 
     def add_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        raise Exception('Not implemented yet')
+        print(f"Authorizing egress '{firewall_rule_request}' on '{security_group_id}'")
+        if not firewall_rule_request.description:
+            description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
+        else:
+            description = firewall_rule_request.description
+
+        try:
+            response = self.client.authorize_security_group_egress(
+                GroupId=security_group_id,
+                IpPermissions=[
+                    {
+                        'FromPort': firewall_rule_request.port,
+                        'ToPort': firewall_rule_request.port,
+                        'IpProtocol': firewall_rule_request.protocol,
+                        'IpRanges': [
+                            {
+                                'CidrIp': firewall_rule_request.ipv4_address,
+                                'Description': description
+                            },
+                        ]
+                    }
+                ]
+            )
+            if response:
+                if 'Return' in response:
+                    if response['Return'] == True:
+                        print(f"Operation performed successfully")
+                    else:
+                        print('Operating failed')
+                else:
+                    print('Unknown response format')
+                    print(response)
+        except botocore.client.ClientError as e:
+            if 'already exists' in f"{e}":
+                print(f"The requested egress rule '{firewall_rule_request}' already exists")
+            else:
+                print(f"{type(e)} - {e}")
 
     def delete_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        print(f"Revoking '{firewall_rule_request}' on '{security_group_id}'")
+        print(f"Revoking ingress '{firewall_rule_request}' on '{security_group_id}'")
 
         # find the description if the one wasn't supplied
         description = ''
@@ -385,7 +421,54 @@ class AwsManager:
                 print(f"{type(e)} - {e}")
 
     def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        raise Exception('Not implemented yet')
+        print(f"Revoking egress '{firewall_rule_request}' on '{security_group_id}'")
+
+        # find the description if the one wasn't supplied
+        description = ''
+        if not firewall_rule_request.description:
+            sg = self.get_security_group(security_group_id=security_group_id)
+            if sg and len(sg) == 1:
+                ip_permissions = sg[0]['IpPermissionsEgress']
+                for rule in ip_permissions:
+                    if 'FromPort' in rule and 'ToPort' in rule:
+                        if (rule['FromPort'] == rule['ToPort']) and firewall_rule_request.port == rule['FromPort']:
+                            ip_ranges = rule['IpRanges']
+                            for range in ip_ranges:
+                                if range['CidrIp'] == firewall_rule_request.ipv4_address:
+                                    description = range['Description']
+            else:
+                raise Exception(f"{len(sg)} security groups have been found by the given id '{security_group_id}'")
+        else:
+            description = firewall_rule_request.description
+
+        try:
+            response = self.client.revoke_security_group_egress(
+                GroupId=security_group_id,
+                IpPermissions=[
+                    {
+                        'FromPort': firewall_rule_request.port,
+                        'ToPort': firewall_rule_request.port,
+                        'IpProtocol': firewall_rule_request.protocol,
+                        'IpRanges': [
+                            {
+                                'CidrIp': firewall_rule_request.ipv4_address,
+                                'Description': description
+                            },
+                        ]
+                    }
+                ]
+            )
+            if response:
+                if 'Return' in response:
+                    if response['Return'] == True:
+                        print(f"Operation performed successfully")
+                    else:
+                        print('Operating failed')
+                else:
+                    print('Unknown response format')
+                    print(response)
+        except botocore.client.ClientError as e:
+            print(f"{type(e)} - {e}")
 
     ## AMI IMAGES
     def get_ami_image(self, image_id: str):
