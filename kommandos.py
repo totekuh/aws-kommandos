@@ -90,6 +90,18 @@ def get_arguments():
                           f"Default is {DEFAULT_IMAGE_ID} (Ubuntu 20.04).")
 
     firewall = parser.add_argument_group('Managing AWS Firewall')
+    firewall.add_argument('--create-security-group',
+                          dest='create_security_group',
+                          required=False,
+                          type=str,
+                          help='Create a new security group with the specified name. '
+                               '--create-security-group "KommandosGroup" '
+                               'or --create-security-group "KommandosGroup: My security group"')
+    firewall.add_argument('--delete-security-group',
+                        dest='delete_security_group',
+                        action='store_true',
+                        required=False,
+                        help="Delete the security group with the given --security-group-id")
     firewall.add_argument('--allow-inbound',
                           dest='allow_inbound',
                           required=False,
@@ -153,6 +165,9 @@ def get_arguments():
     else:
         if options.invoke_script:
             parser.error("Invoking scripts on remote is only supported while creating new instances (at least yet)")
+    if options.delete_security_group and not options.security_group_id:
+        parser.error('The --security-group-id argument is required for deleting a security group. '
+                     'Use --help for more info')
     if options.terminate and options.terminate_all:
         parser.error("You must use either --terminate <instance-id> or --terminate-all. Because I said so."
                      "Use --help for more info.")
@@ -271,8 +286,6 @@ class AwsManager:
         if security_groups:
             print('Security groups are:')
             for sg in security_groups:
-                group_id = sg['GroupId']
-                description = sg['Description']
                 ip_permissions = []
                 for rule in sg['IpPermissions']:
                     ip_permissions.append(security_rule_to_string(rule))
@@ -282,17 +295,38 @@ class AwsManager:
                     ip_permissions_egress.append(security_rule_to_string(rule))
 
                 group = {
-                    'GroupId': group_id,
-                    'Description': description,
+                    'GroupId': sg['GroupId'],
+                    'GroupName': sg['GroupName'],
+                    'Description': sg['Description'],
                     'IpPermissionsIngress': ip_permissions,
                     'IpPermissionsEgress': ip_permissions_egress
                 }
                 pprint(group, sort_dicts=False)
 
     ### CREATE A NEW SECURITY GROUP
-    def create_security_group(self):
-        raise Exception('Not implemented yet')
+    def create_security_group(self, group_name: str, description: str):
+        try:
+            self.ec2.create_security_group(GroupName=group_name,
+                                           Description=description)
+        except botocore.client.ClientError as e:
+            if 'already exists' in f"{e}":
+                print(f'The security group with name {group_name} already exists')
+            else:
+                print(f"{type(e)} - {e}")
 
+    ### DELETE A SECURITY GROUP
+    def delete_security_group(self, security_group_id):
+        try:
+            self.client.delete_security_group(GroupId=security_group_id)
+            print(f"The security group with id '{security_group_id}' has been deleted")
+        except botocore.client.ClientError as e:
+            if 'does not exist' in f"{e}":
+                print(f"The specified security group with id '{security_group_id}' does not exist")
+            else:
+                print(f"{type(e)} - {e}")
+
+
+    ### CONFIGURING DA FIREWALL
     def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Authorizing ingress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
@@ -418,7 +452,7 @@ class AwsManager:
                     print('Unknown response format')
                     print(response)
         except botocore.client.ClientError as e:
-                print(f"{type(e)} - {e}")
+            print(f"{type(e)} - {e}")
 
     def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Revoking egress '{firewall_rule_request}' on '{security_group_id}'")
@@ -688,6 +722,20 @@ if __name__ == '__main__':
         aws_manager.terminate_instance(instance_id=options.terminate)
     elif options.terminate_all:
         aws_manager.terminate_all_running_instances()
+
+    if options.create_security_group:
+        group_name = options.create_security_group
+        if ':' in group_name:
+            chunks = group_name.split(':', maxsplit=1)
+            name = chunks[0]
+            description = chunks[1]
+        else:
+            name = group_name
+            description = f"{name}-generated-by-kommandos"
+        aws_manager.create_security_group(group_name=name,
+                                          description=description)
+    if options.delete_security_group:
+        aws_manager.delete_security_group(security_group_id=options.security_group_id)
 
     if options.allow_inbound:
         aws_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(options.allow_inbound),
