@@ -462,15 +462,22 @@ class AwsManager:
                   f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_pair_name}.pem")
             return instance
 
-    def invoke_script(self, instance_id: str, file_name: str, key_pair_name: str):
+    def invoke_script(self, instance_id: str, file_name: str, key_pair_name: str = None):
         instance = self.get_instance(instance_id=instance_id)
         ip_address = instance.public_ip_address
         username = self.get_default_ami_user_name(image_id=instance.image_id)
         print(f"Invoking the {file_name} script on the instance hosted at {ip_address}")
 
+        if not key_pair_name:
+            key_pair_name = f"{instance.key_pair.name}.pem"
+
+        if not os.path.exists(key_pair_name):
+            raise Exception(f"The RSA private key '{key_pair_name}' has not been found at the given path")
+
         # did you even know you could pipe commands like this?
         os.system(f"cat {file_name} | "
-                  f'ssh -o "StrictHostKeyChecking=accept-new" {username}@{ip_address} -i {key_pair_name}.pem')
+                  f'ssh -o "StrictHostKeyChecking=accept-new" {username}@{ip_address} -i {key_pair_name}')
+        print(f"The '{file_name}' script has been invoked as {username}@{ip_address}")
 
 
 if __name__ == '__main__':
@@ -553,5 +560,4 @@ if __name__ == '__main__':
                                                 instance_name=instance_name)
         if options.invoke_script:
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
-                                      file_name=options.invoke_script,
-                                      key_pair_name=key_pair_name)
+                                      file_name=options.invoke_script)
