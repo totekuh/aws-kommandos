@@ -12,6 +12,8 @@ DEFAULT_INSTANCE_TYPE = 't2.micro'
 DEFAULT_INSTANCE_NAME = 'proxy-instance'
 DEFAULT_KEY_NAME = 'proxy-key'
 
+DEFAULT_DNS_TTL = 86400
+
 if 'win' in sys.platform:
     print("Windows ain't supported")
     exit()
@@ -28,19 +30,21 @@ def get_arguments():
                                    action='store_true',
                                    required=False,
                                    help="Start a new EC2 instance")
-    starting_commands.add_argument('--domain',
-                                   dest='domain',
+    starting_commands.add_argument('--link-fqdn',
+                                   action='store_true',
+                                   dest='link_fqdn',
                                    required=False,
-                                   type=str,
-                                   help="Specify a domain name to automatically create A and MX records pointing "
-                                        "to the IP address of the newly created instance. "
+                                   help="Instruct the Kommandos script to automatically "
+                                        "create A and MX records pointing "
+                                        "to the IP address of the newly created instance "
+                                        "for the domain specified with the --fqdn flag. "
                                         "You must own the domain name and have the hosted zone for doing that.")
     starting_commands.add_argument('--invoke-script',
                                    dest='invoke_script',
                                    required=False,
                                    type=str,
                                    help="Specify a filename of a script to execute on remote. "
-                                        "You can grab a predefined one from the instance-scripts folder "
+                                        "You can either grab one from the ./instance-scripts/ folder "
                                         "or supply your own.")
     starting_commands.add_argument("--instance-type",
                                    dest="instance_type",
@@ -59,6 +63,46 @@ def get_arguments():
 
     # Route53 Managing Domains
     route53 = parser.add_argument_group('Route53 Domain Management')
+    route53.add_argument('--add-record',
+                         dest='add_record',
+                         action='store_true',
+                         required=False,
+                         help='Specify if a new record set with specified '
+                              '--record-type '
+                              'and --record-value '
+                              'for --fqdn must be inserted.')
+    route53.add_argument('--delete-record',
+                         dest='delete_record',
+                         action='store_true',
+                         required=False,
+                         help='Specify if the record set with specified '
+                              '--record-type '
+                              'and --record-value '
+                              'for --fqdn must be deleted.')
+    route53.add_argument('--record-type',
+                         dest='record_type',
+                         required=False,
+                         choices=['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SOA', 'NS', 'SRV', 'PTR'],
+                         type=str,
+                         help='Specify the record type to use with --add-record or --delete-record')
+    route53.add_argument('--record-value',
+                         dest='record_value',
+                         required=False,
+                         type=str,
+                         help="Specify the record value to use with --add-record or --delete-record")
+    route53.add_argument('--ttl',
+                         dest='ttl',
+                         required=False,
+                         default=DEFAULT_DNS_TTL,
+                         type=int,
+                         help='Specify the TTL value to use while creating DNS record sets. '
+                              f"Default is '{DEFAULT_DNS_TTL}'.")
+    route53.add_argument('--fqdn',
+                         dest='fqdn',
+                         required=False,
+                         type=str,
+                         help="Specify the domain name (FQDN) to use with --add-record or --delete-record "
+                              "or with the --link-fqdn flag for linking it to a new EC2 instance")
 
     stats = parser.add_argument_group('Getting AWS Overview')
     stats.add_argument("--stats",
@@ -66,11 +110,12 @@ def get_arguments():
                        action='store_true',
                        required=False,
                        help="Print the current stats to the console")
-    stats.add_argument('--verbose',
+    stats.add_argument('-v',
+                       '--verbose',
                        dest='verbose',
                        action='store_true',
                        required=False,
-                       help="Be verbose. Print more detailed stats.")
+                       help="Be verbose. Print detailed stats.")
 
     termination = parser.add_argument_group('Terminating Instances')
     termination.add_argument('--terminate',
@@ -131,7 +176,7 @@ def get_arguments():
                           type=str,
                           help="Specify an outbound firewall rule to be applied for the given security group and "
                                "eventually for created instances. "
-                               "Should be in the following format: --allow-outbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "Should be in the following format: --allow-outbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --allow-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-inbound',
                           dest='delete_inbound',
@@ -139,7 +184,7 @@ def get_arguments():
                           type=str,
                           help="Specify an inbound firewall rule to be deleted from the given security group and "
                                "eventually from linked instances. "
-                               "Should be in the following format: --delete-inbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "Should be in the following format: --delete-inbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-outbound',
                           dest='delete_outbound',
@@ -147,7 +192,7 @@ def get_arguments():
                           type=str,
                           help="Specify an outbound firewall rule to be deleted from the given security group and "
                                "eventually from linked instances. "
-                               "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument("--security-group-id",
                           dest="security_group_id",
@@ -190,6 +235,17 @@ def get_arguments():
             and not options.security_group_id:
         parser.error('The --security-group-id argument must be provided whenever you wanna change the firewall rules. '
                      'Use --help for more info.')
+
+    if options.add_record or options.delete_record:
+        if not options.record_type:
+            parser.error('--record-type is required for adding new DNS records. Use --help for more info.')
+        if not options.record_value:
+            parser.error('--record-value is required for adding new DNS records. Use --help for more info.')
+        if not options.fqdn:
+            parser.error('--fqdn is required for adding new DNS records. Use --help for more info.')
+    if options.link_fqdn and not options.fqdn:
+        parser.error('A domain name with the --fqdn flag must be supplied for auto-creating the A and MX record sets. '
+                     'Use --help for more info.')
     return options
 
 
@@ -230,22 +286,26 @@ class AwsManager:
     def get_all_hosted_zones(self):
         return self.route53_client.list_hosted_zones_by_name()['HostedZones']
 
+    ### GETTING A HOSTING ZONE
     def get_hosted_zone(self, hosted_zone_name: str):
         return self.route53_client.list_hosted_zones_by_name(DNSName=hosted_zone_name)['HostedZones'][0]
 
-    def create_dns_record(self, hosted_zone_name: str, record_type: str, record_value: str):
+    ### CREATING DNS RECORDS
+    def create_dns_record(self, hosted_zone_name: str,
+                          record_type: str,
+                          record_value: str,
+                          ttl: int):
         hosted_zone = self.get_hosted_zone(hosted_zone_name=hosted_zone_name)
         self.route53_client.change_resource_record_sets(
             HostedZoneId=hosted_zone['Id'],
             ChangeBatch={
-                # 'Comment': 'add %s -> %s' % (Name, value),
                 'Changes': [
                     {
                         'Action': "UPSERT",
                         'ResourceRecordSet': {
                             'Name': hosted_zone_name,
                             'Type': record_type,
-                            'TTL': 86400,
+                            'TTL': ttl,
                             'ResourceRecords': [{'Value': record_value}]
                         }
                     }]
@@ -253,11 +313,42 @@ class AwsManager:
         )
         print(f"A new record set {hosted_zone['Name']} {record_type} {record_value} has been created")
 
+    ### DELETING DNS RECORDS
+    def delete_dns_record(self, hosted_zone_name: str,
+                          record_type: str,
+                          record_value: str,
+                          ttl: int):
+        hosted_zone = self.get_hosted_zone(hosted_zone_name=hosted_zone_name)
+        try:
+            self.route53_client.change_resource_record_sets(
+                HostedZoneId=hosted_zone['Id'],
+                ChangeBatch={
+                    'Changes': [
+                        {
+                            'Action': "DELETE",
+                            'ResourceRecordSet': {
+                                'Name': hosted_zone_name,
+                                'Type': record_type,
+                                'TTL': ttl,
+                                'ResourceRecords': [{'Value': record_value}]
+                            }
+                        }]
+                }
+            )
+            print(f"The record set {hosted_zone['Name']} {record_type} {record_value} has been deleted")
+        except Exception as e:
+            if "but it was not found" in f"{e}":
+                print(f"The record set {record_type} {record_value} for fqdn {hosted_zone_name} has not been found")
+            else:
+                print(f"{type(e)} - {e}")
+
+    ### GETTING RECORD SETS
     def get_record_sets(self, hosted_zone_id: str):
         return self.route53_client.list_resource_record_sets(
             HostedZoneId=hosted_zone_id
         )['ResourceRecordSets']
 
+    ### PRINTING DNS STATS
     def print_hosted_zones(self, verbose: bool = False):
         hosted_zones = self.get_all_hosted_zones()
 
@@ -369,14 +460,16 @@ class AwsManager:
                 for rule in sg['IpPermissionsEgress']:
                     ip_permissions_egress.append(security_rule_to_string(rule))
 
-                group = {
-                    'GroupId': sg['GroupId'],
-                    'GroupName': sg['GroupName'],
-                    'Description': sg['Description'],
-                }
+                group = {'GroupId': sg['GroupId'],
+                         'GroupName': sg['GroupName'],
+                         'Description': sg['Description'],
+                         'IpPermissionsIngress': ip_permissions,
+                         'IpPermissionsEgress': ip_permissions_egress}
+
                 if verbose:
-                    group['IpPermissionsIngress'] = ip_permissions
-                    group['IpPermissionsEgress'] = ip_permissions_egress
+                    group['OwnerId'] = sg['OwnerId']
+                    group['VpcId'] = sg['VpcId']
+                    
                 pprint(group, sort_dicts=False)
 
     ### CREATE A NEW SECURITY GROUP
@@ -392,7 +485,7 @@ class AwsManager:
                 print(f"{type(e)} - {e}")
 
     ### DELETE A SECURITY GROUP
-    def delete_security_group(self, security_group_id):
+    def delete_security_group(self, security_group_id: str):
         try:
             self.ec2_client.delete_security_group(GroupId=security_group_id)
             print(f"The security group with id '{security_group_id}' has been deleted")
@@ -429,7 +522,7 @@ class AwsManager:
             )
             if response:
                 if 'Return' in response:
-                    if response['Return'] == True:
+                    if response['Return']:
                         print(f"Operation performed successfully")
                     else:
                         print('Operating failed')
@@ -468,7 +561,7 @@ class AwsManager:
             )
             if response:
                 if 'Return' in response:
-                    if response['Return'] == True:
+                    if response['Return']:
                         print(f"Operation performed successfully")
                     else:
                         print('Operating failed')
@@ -797,6 +890,17 @@ if __name__ == '__main__':
     elif options.terminate_all:
         aws_manager.terminate_all_running_instances()
 
+    if options.add_record:
+        aws_manager.create_dns_record(hosted_zone_name=options.fqdn,
+                                      record_type=options.record_type,
+                                      record_value=options.record_value,
+                                      ttl=options.ttl)
+    if options.delete_record:
+        aws_manager.delete_dns_record(hosted_zone_name=options.fqdn,
+                                      record_type=options.record_type,
+                                      record_value=options.record_value,
+                                      ttl=options.ttl)
+
     if options.create_security_group:
         group_name = options.create_security_group
         if ':' in group_name:
@@ -873,14 +977,14 @@ if __name__ == '__main__':
         if options.invoke_script:
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
                                       file_name=options.invoke_script)
-        if options.domain:
-            domain_name = options.domain
-            # create the A record first
+        if options.link_fqdn:
+            domain_name = options.fqdn
+            ttl = options.ttl
             aws_manager.create_dns_record(hosted_zone_name=domain_name,
                                           record_type='A',
-                                          record_value=new_instance.public_ip_address)
-
-            # then create the MX record
+                                          record_value=new_instance.public_ip_address,
+                                          ttl=ttl)
             aws_manager.create_dns_record(hosted_zone_name=domain_name,
                                           record_type='MX',
-                                          record_value=f"1 {new_instance.public_ip_address}")
+                                          record_value=f"1 {new_instance.public_ip_address}",
+                                          ttl=ttl)
