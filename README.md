@@ -90,7 +90,7 @@ Use the following command for connecting to the instance: ssh ubuntu@18.197.229.
 ```
 
 Oh, and did I mention that if you don't have an SSH access key the script automatically creates one for you?
-Use --force-recreate-key to force the script into creating a new key even if one with the same name exists.
+Use *--force-recreate-key* to force the script into creating a new key even if one with the same name exists.
 
 ### Start a new instance and invoke a bash script on remote
 
@@ -115,7 +115,7 @@ The 'instance-scripts/proxy/invoke-fresh-install.sh' script has been invoked as 
 ```
 
 ### Start a new instance and autoconfigure the DNS record sets
-This command starts a new instance and uses the domain name supplied in --fqdn argument 
+This command starts a new instance and uses the domain name supplied with the *--fqdn* argument 
 to create A and MX record sets pointing to the IP address of the newly created EC2 instance.
 ```text
 ╰$ aws-kommandos --security-group sg-66666666661488666 --start --link-fqdn --fqdn virtualsquad.ninja
@@ -174,7 +174,7 @@ A new security group with the name 'NinjaGroup' has been created
 
 ### Delete a security group
 ```text
-╰$ ./kommandos.py --delete-security-group --security-group-id sg-0b2d1b55354c531bd
+╰$ aws-kommandos --delete-security-group --security-group-id sg-0b2d1b55354c531bd
 The security group with id 'sg-0b2d1b55354c531bd' has been deleted
 ```
 
