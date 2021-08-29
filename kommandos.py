@@ -308,6 +308,7 @@ class AwsManager:
         try:
             self.ec2.create_security_group(GroupName=group_name,
                                            Description=description)
+            print(f"A new security group with the name '{group_name}' has been created")
         except botocore.client.ClientError as e:
             if 'already exists' in f"{e}":
                 print(f'The security group with name {group_name} already exists')
