@@ -21,13 +21,20 @@ def get_arguments():
     from argparse import ArgumentParser
     parser = ArgumentParser(description='AWS Kommandos Script')
 
-    # COMMANDS
+    # EC2 Starting Instances
     starting_commands = parser.add_argument_group('Starting Instances')
     starting_commands.add_argument("--start",
                                    dest="start",
                                    action='store_true',
                                    required=False,
                                    help="Start a new EC2 instance")
+    starting_commands.add_argument('--domain',
+                                   dest='domain',
+                                   required=False,
+                                   type=str,
+                                   help="Specify a domain name to automatically create A and MX records pointing "
+                                        "to the IP address of the newly created instance. "
+                                        "You must own the domain name and have the hosted zone for doing that.")
     starting_commands.add_argument('--invoke-script',
                                    dest='invoke_script',
                                    required=False,
@@ -41,14 +48,17 @@ def get_arguments():
                                    default=DEFAULT_INSTANCE_TYPE,
                                    type=str,
                                    help="Specify the instance type to use. "
-                                        f"Default is {DEFAULT_INSTANCE_TYPE}")
+                                        f"Default is '{DEFAULT_INSTANCE_TYPE}'.")
     starting_commands.add_argument("--instance-name",
                                    dest="instance_name",
                                    required=False,
                                    default=DEFAULT_INSTANCE_NAME,
                                    type=str,
                                    help="Specify the instance name. "
-                                        f"Default is {DEFAULT_INSTANCE_NAME}")
+                                        f"Default is '{DEFAULT_INSTANCE_NAME}'.")
+
+    # Route53 Managing Domains
+    route53 = parser.add_argument_group('Route53 Domain Management')
 
     stats = parser.add_argument_group('Getting AWS Overview')
     stats.add_argument("--stats",
@@ -56,6 +66,11 @@ def get_arguments():
                        action='store_true',
                        required=False,
                        help="Print the current stats to the console")
+    stats.add_argument('--verbose',
+                       dest='verbose',
+                       action='store_true',
+                       required=False,
+                       help="Be verbose. Print more detailed stats.")
 
     termination = parser.add_argument_group('Terminating Instances')
     termination.add_argument('--terminate',
@@ -98,10 +113,10 @@ def get_arguments():
                                '--create-security-group "KommandosGroup" '
                                'or --create-security-group "KommandosGroup: My security group"')
     firewall.add_argument('--delete-security-group',
-                        dest='delete_security_group',
-                        action='store_true',
-                        required=False,
-                        help="Delete the security group with the given --security-group-id")
+                          dest='delete_security_group',
+                          action='store_true',
+                          required=False,
+                          help="Delete the security group with the given --security-group-id")
     firewall.add_argument('--allow-inbound',
                           dest='allow_inbound',
                           required=False,
@@ -207,31 +222,91 @@ class FirewallRuleRequest:
 class AwsManager:
     def __init__(self):
         self.ec2 = boto3.resource('ec2')
-        self.client = boto3.client('ec2')
+        self.route53_client = boto3.client('route53')
+        self.ec2_client = boto3.client('ec2')
+
+    ## DNS
+    ### GETTING ALL HOSTING ZONES
+    def get_all_hosted_zones(self):
+        return self.route53_client.list_hosted_zones_by_name()['HostedZones']
+
+    def get_hosted_zone(self, hosted_zone_name: str):
+        return self.route53_client.list_hosted_zones_by_name(DNSName=hosted_zone_name)['HostedZones'][0]
+
+    def create_dns_record(self, hosted_zone_name: str, record_type: str, record_value: str):
+        hosted_zone = self.get_hosted_zone(hosted_zone_name=hosted_zone_name)
+        self.route53_client.change_resource_record_sets(
+            HostedZoneId=hosted_zone['Id'],
+            ChangeBatch={
+                # 'Comment': 'add %s -> %s' % (Name, value),
+                'Changes': [
+                    {
+                        'Action': "UPSERT",
+                        'ResourceRecordSet': {
+                            'Name': hosted_zone_name,
+                            'Type': record_type,
+                            'TTL': 86400,
+                            'ResourceRecords': [{'Value': record_value}]
+                        }
+                    }]
+            }
+        )
+        print(f"A new record set {hosted_zone['Name']} {record_type} {record_value} has been created")
+
+    def get_record_sets(self, hosted_zone_id: str):
+        return self.route53_client.list_resource_record_sets(
+            HostedZoneId=hosted_zone_id
+        )['ResourceRecordSets']
+
+    def print_hosted_zones(self, verbose: bool = False):
+        hosted_zones = self.get_all_hosted_zones()
+
+        if hosted_zones:
+            print("Hosting zones are:")
+            for zone in hosted_zones:
+                hosted_zone_id = zone['Id']
+                hz = {
+                    'Name': zone['Name'],
+                    'HostedZoneId': hosted_zone_id,
+                }
+                if verbose:
+                    hz['ResourceRecordSets'] = self.get_record_sets(hosted_zone_id=hosted_zone_id)
+                    pprint(hz, sort_dicts=False)
+                else:
+                    print(hz)
+        else:
+            print('No hosting zones found')
 
     ## SSH KEY PAIRS
     ### GETTING KEY PAIRS
     def get_key_pairs(self):
         key_pairs = []
-        response = self.client.describe_key_pairs()
+        response = self.ec2_client.describe_key_pairs()
         if response and 'KeyPairs' in response:
             for key_pair in response['KeyPairs']:
                 key_pairs.append(key_pair)
         return key_pairs
 
-    def print_key_pairs(self):
+    def print_key_pairs(self, verbose: bool = False):
         key_pairs = self.get_key_pairs()
         if key_pairs:
             print('The SSH key pairs are:')
             for kp in key_pairs:
-                pprint(kp, sort_dicts=False)
+                key = {
+                    'KeyPairId': kp['KeyPairId'],
+                    'KeyName': kp['KeyName']
+                }
+                if verbose:
+                    key['KeyFingerprint'] = kp['KeyFingerprint']
+                    key['Tags'] = kp['Tags']
+                pprint(key, sort_dicts=False)
         else:
             print('There are no SSH key pairs')
 
     ### CREATING A KEY PAIR
     def create_key_pair(self, key_name: str):
         print(f"Creating a new SSH key pair: {key_name}")
-        response = self.client.create_key_pair(KeyName=key_name)
+        response = self.ec2_client.create_key_pair(KeyName=key_name)
         if response and 'KeyMaterial' in response:
             private_key = response['KeyMaterial']
             file_name = f"{key_name}.pem"
@@ -245,7 +320,7 @@ class AwsManager:
     ### DELETE A KEY PAIR
     def delete_key_pair(self, key_name: str):
         print(f"Deleting the SSH key pair: {key_name}")
-        self.client.delete_key_pair(KeyName=key_name)
+        self.ec2_client.delete_key_pair(KeyName=key_name)
 
         file_name = f"{key_name}.pem"
         if os.path.exists(file_name):
@@ -256,14 +331,14 @@ class AwsManager:
     ### GET SECURITY GROUPS
     def get_all_security_groups(self):
         security_groups = []
-        response = self.client.describe_security_groups()
+        response = self.ec2_client.describe_security_groups()
         if response and 'SecurityGroups' in response:
             for sg in response['SecurityGroups']:
                 security_groups.append(sg)
         return security_groups
 
     def get_security_group(self, security_group_id: str):
-        return self.client.describe_security_groups(
+        return self.ec2_client.describe_security_groups(
             Filters=[
                 {
                     'Name': 'group-id',
@@ -274,7 +349,7 @@ class AwsManager:
             ]
         )['SecurityGroups']
 
-    def print_security_groups(self):
+    def print_security_groups(self, verbose: bool = False):
         def security_rule_to_string(rule: dict):
             if rule['IpProtocol'] == '-1':
                 return f"{';'.join([ip['CidrIp'] for ip in rule['IpRanges']])} -> All Traffic"
@@ -298,9 +373,10 @@ class AwsManager:
                     'GroupId': sg['GroupId'],
                     'GroupName': sg['GroupName'],
                     'Description': sg['Description'],
-                    'IpPermissionsIngress': ip_permissions,
-                    'IpPermissionsEgress': ip_permissions_egress
                 }
+                if verbose:
+                    group['IpPermissionsIngress'] = ip_permissions
+                    group['IpPermissionsEgress'] = ip_permissions_egress
                 pprint(group, sort_dicts=False)
 
     ### CREATE A NEW SECURITY GROUP
@@ -318,14 +394,13 @@ class AwsManager:
     ### DELETE A SECURITY GROUP
     def delete_security_group(self, security_group_id):
         try:
-            self.client.delete_security_group(GroupId=security_group_id)
+            self.ec2_client.delete_security_group(GroupId=security_group_id)
             print(f"The security group with id '{security_group_id}' has been deleted")
         except botocore.client.ClientError as e:
             if 'does not exist' in f"{e}":
                 print(f"The specified security group with id '{security_group_id}' does not exist")
             else:
                 print(f"{type(e)} - {e}")
-
 
     ### CONFIGURING DA FIREWALL
     def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
@@ -336,7 +411,7 @@ class AwsManager:
             description = firewall_rule_request.description
 
         try:
-            response = self.client.authorize_security_group_ingress(
+            response = self.ec2_client.authorize_security_group_ingress(
                 GroupId=security_group_id,
                 IpPermissions=[
                     {
@@ -375,7 +450,7 @@ class AwsManager:
             description = firewall_rule_request.description
 
         try:
-            response = self.client.authorize_security_group_egress(
+            response = self.ec2_client.authorize_security_group_egress(
                 GroupId=security_group_id,
                 IpPermissions=[
                     {
@@ -427,7 +502,7 @@ class AwsManager:
             description = firewall_rule_request.description
 
         try:
-            response = self.client.revoke_security_group_ingress(
+            response = self.ec2_client.revoke_security_group_ingress(
                 GroupId=security_group_id,
                 IpPermissions=[
                     {
@@ -445,7 +520,7 @@ class AwsManager:
             )
             if response:
                 if 'Return' in response:
-                    if response['Return'] == True:
+                    if response['Return']:
                         print(f"Operation performed successfully")
                     else:
                         print('Operating failed')
@@ -477,7 +552,7 @@ class AwsManager:
             description = firewall_rule_request.description
 
         try:
-            response = self.client.revoke_security_group_egress(
+            response = self.ec2_client.revoke_security_group_egress(
                 GroupId=security_group_id,
                 IpPermissions=[
                     {
@@ -495,7 +570,7 @@ class AwsManager:
             )
             if response:
                 if 'Return' in response:
-                    if response['Return'] == True:
+                    if response['Return']:
                         print(f"Operation performed successfully")
                     else:
                         print('Operating failed')
@@ -507,7 +582,7 @@ class AwsManager:
 
     ## AMI IMAGES
     def get_ami_image(self, image_id: str):
-        return self.client.describe_images(
+        return self.ec2_client.describe_images(
             ImageIds=[
                 image_id
             ]
@@ -515,7 +590,7 @@ class AwsManager:
 
     def search_ami_images(self, query: str):
         images = []
-        resp = self.client.describe_images(
+        resp = self.ec2_client.describe_images(
             Filters=[
                 {
                     'Name': 'name',
@@ -598,27 +673,25 @@ class AwsManager:
     def get_instance(self, instance_id: str):
         return self.ec2.Instance(instance_id)
 
-    def print_running_instances(self):
+    def print_running_instances(self, verbose: bool = False):
         instances = self.get_running_instances()
         if instances:
             print('Running instances are:')
             for instance in instances:
-                instance_id = instance.id
-                key_pair_name = instance.key_pair.key_name
-                public_ip_address = instance.public_ip_address
-                image_id = instance.image_id
                 name = ''
                 for tag in instance.tags:
                     if 'Key' in tag and tag['Key'] == 'Name':
                         name = tag['Value']
                 inst = {
-                    'InstanceId': instance_id,
-                    'KeyPairName': key_pair_name,
-                    'PublicIpAddress': public_ip_address,
-                    'ImageId': image_id,
+                    'InstanceId': instance.id,
+                    'PublicIpAddress': instance.public_ip_address,
+                    'KeyPairName': instance.key_pair.key_name
                 }
                 if name:
                     inst['Name'] = name
+                if verbose:
+                    inst['ImageId'] = instance.image_id
+                    inst['SecurityGroups'] = instance.security_groups
 
                 pprint(inst, sort_dicts=False)
         else:
@@ -627,7 +700,7 @@ class AwsManager:
     ### TERMINATING INSTANCES
     def terminate_instance(self, instance_id: str):
         print(f'Terminating {instance_id}')
-        self.client.terminate_instances(InstanceIds=[
+        self.ec2_client.terminate_instances(InstanceIds=[
             instance_id
         ])
 
@@ -649,28 +722,28 @@ class AwsManager:
                      instance_name: str):
         print(f'Starting a new instance: '
               f'{image_id} {key_pair_name} {security_group_id} {instance_type} {instance_name}')
-        response = self.client.run_instances(InstanceType=instance_type,
-                                             ImageId=image_id,
-                                             KeyName=key_pair_name,
-                                             SecurityGroupIds=[security_group_id],
-                                             TagSpecifications=[
-                                                 {
-                                                     'ResourceType': 'instance',
-                                                     'Tags': [
-                                                         {
-                                                             'Key': 'Name',
-                                                             'Value': instance_name
-                                                         },
-                                                     ]
-                                                 },
-                                             ],
-                                             # The maximum number of instances to launch.
-                                             # If you specify more instances than Amazon EC2 can launch
-                                             # in the target Availability Zone,
-                                             # Amazon EC2 launches the largest possible number of instances above MinCount.
-                                             MaxCount=1,
-                                             MinCount=1
-                                             )
+        response = self.ec2_client.run_instances(InstanceType=instance_type,
+                                                 ImageId=image_id,
+                                                 KeyName=key_pair_name,
+                                                 SecurityGroupIds=[security_group_id],
+                                                 TagSpecifications=[
+                                                     {
+                                                         'ResourceType': 'instance',
+                                                         'Tags': [
+                                                             {
+                                                                 'Key': 'Name',
+                                                                 'Value': instance_name
+                                                             },
+                                                         ]
+                                                     },
+                                                 ],
+                                                 # The maximum number of instances to launch.
+                                                 # If you specify more instances than Amazon EC2 can launch
+                                                 # in the target Availability Zone,
+                                                 # Amazon EC2 launches the largest possible number of instances above MinCount.
+                                                 MaxCount=1,
+                                                 MinCount=1
+                                                 )
         new_instance = response['Instances'][0]
         if new_instance:
             print('The instance has been created')
@@ -752,11 +825,13 @@ if __name__ == '__main__':
                                        security_group_id=options.security_group_id)
 
     if options.stats:
-        aws_manager.print_running_instances()
+        aws_manager.print_running_instances(verbose=options.verbose)
         print('*' * 70)
-        aws_manager.print_key_pairs()
+        aws_manager.print_key_pairs(verbose=options.verbose)
         print('*' * 70)
-        aws_manager.print_security_groups()
+        aws_manager.print_security_groups(verbose=options.verbose)
+        print('*' * 70)
+        aws_manager.print_hosted_zones(verbose=options.verbose)
     elif options.search_ami:
         images = aws_manager.search_ami_images(query=options.search_ami)
         if images:
@@ -798,3 +873,14 @@ if __name__ == '__main__':
         if options.invoke_script:
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
                                       file_name=options.invoke_script)
+        if options.domain:
+            domain_name = options.domain
+            # create the A record first
+            aws_manager.create_dns_record(hosted_zone_name=domain_name,
+                                          record_type='A',
+                                          record_value=new_instance.public_ip_address)
+
+            # then create the MX record
+            aws_manager.create_dns_record(hosted_zone_name=domain_name,
+                                          record_type='MX',
+                                          record_value=f"1 {new_instance.public_ip_address}")
