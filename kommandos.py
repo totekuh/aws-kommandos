@@ -4,6 +4,7 @@ import sys
 from pprint import pprint
 
 import boto3
+import botocore.client
 
 # ubuntu server 20.04
 DEFAULT_IMAGE_ID = 'ami-0746eb3cb5c684ae6'
@@ -95,28 +96,32 @@ def get_arguments():
                           type=str,
                           help="Specify an inbound firewall rule to be applied for the given security group and "
                                "eventually for created instances. "
-                               "Should be in the following format: --allow-inbound 443/tcp:10.10.10.10/32:HTTPS-rule")
+                               "Should be in the following format: --allow-inbound 443/tcp:10.10.10.10/32:HTTPS-rule "
+                               "or --allow-inbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--allow-outbound',
                           dest='allow_outbound',
                           required=False,
                           type=str,
                           help="Specify an outbound firewall rule to be applied for the given security group and "
                                "eventually for created instances. "
-                               "Should be in the following format: --allow-outbound 443/tcp:10.10.10.10/32:HTTPS-rule")
+                               "Should be in the following format: --allow-outbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "or --allow-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-inbound',
                           dest='delete_inbound',
                           required=False,
                           type=str,
                           help="Specify an inbound firewall rule to be deleted from the given security group and "
                                "eventually from linked instances. "
-                               "Should be in the following format: --delete-inbound 443/tcp:10.10.10.10/32:HTTPS-rule")
+                               "Should be in the following format: --delete-inbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-outbound',
                           dest='delete_outbound',
                           required=False,
                           type=str,
                           help="Specify an outbound firewall rule to be deleted from the given security group and "
                                "eventually from linked instances. "
-                               "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule")
+                               "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule"
+                               "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument("--security-group-id",
                           dest="security_group_id",
                           required=False,
@@ -163,7 +168,7 @@ class FirewallRuleRequest:
         if ':' not in rule_from_command_line:
             raise Exception('Invalid format of the firewall rule. Use --help to see an example.')
         chunks = rule_from_command_line.split(':')
-        if len(chunks) != 3:
+        if len(chunks) != 2 and len(chunks) != 3:
             raise Exception('Invalid number of chunks in the rule. Use --help to see an example.')
         if '/' not in chunks[0]:
             raise Exception('Invalid port specification format. Use --help to see an example.')
@@ -175,7 +180,13 @@ class FirewallRuleRequest:
             raise
         self.protocol = port_specification[1]
         self.ipv4_address = chunks[1]
-        self.description = chunks[2]
+        if len(chunks) == 3:
+            self.description = chunks[2]
+        else:
+            self.description = ''
+
+    def __repr__(self):
+        return f"[{self.port}/{self.protocol} -> {self.ipv4_address}] - {self.description}"
 
 
 class AwsManager:
@@ -236,6 +247,18 @@ class AwsManager:
                 security_groups.append(sg)
         return security_groups
 
+    def get_security_group(self, security_group_id: str):
+        return self.client.describe_security_groups(
+            Filters=[
+                {
+                    'Name': 'group-id',
+                    'Values': [
+                        security_group_id,
+                    ]
+                },
+            ]
+        )['SecurityGroups']
+
     def print_security_groups(self):
         def security_rule_to_string(rule: dict):
             if rule['IpProtocol'] == '-1':
@@ -271,13 +294,95 @@ class AwsManager:
         raise Exception('Not implemented yet')
 
     def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        raise Exception('Not implemented yet')
+        print(f"Authorizing '{firewall_rule_request}' on '{security_group_id}'")
+        if not firewall_rule_request.description:
+            description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
+        else:
+            description = firewall_rule_request.description
+
+        try:
+            response = self.client.authorize_security_group_ingress(
+                GroupId=security_group_id,
+                IpPermissions=[
+                    {
+                        'FromPort': firewall_rule_request.port,
+                        'ToPort': firewall_rule_request.port,
+                        'IpProtocol': firewall_rule_request.protocol,
+                        'IpRanges': [
+                            {
+                                'CidrIp': firewall_rule_request.ipv4_address,
+                                'Description': description
+                            },
+                        ]
+                    }
+                ]
+            )
+            if response:
+                if 'Return' in response:
+                    if response['Return'] == True:
+                        print(f"Operation performed successfully")
+                    else:
+                        print('Operating failed')
+                else:
+                    print('Unknown response format')
+                    print(response)
+        except botocore.client.ClientError as e:
+            if 'already exists' in f"{e}":
+                print(f"The requested rule '{firewall_rule_request}' already exists")
+            else:
+                print(f"{type(e)} - {e}")
 
     def add_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         raise Exception('Not implemented yet')
 
     def delete_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
-        raise Exception('Not implemented yet')
+        print(f"Revoking '{firewall_rule_request}' on '{security_group_id}'")
+
+        # find the description if the one wasn't supplied
+        description = ''
+        if not firewall_rule_request.description:
+            sg = self.get_security_group(security_group_id=security_group_id)
+            if sg and len(sg) == 1:
+                ip_permissions = sg[0]['IpPermissions']
+                for rule in ip_permissions:
+                    if (rule['FromPort'] == rule['ToPort']) and firewall_rule_request.port == rule['FromPort']:
+                        ip_ranges = rule['IpRanges']
+                        for range in ip_ranges:
+                            if range['CidrIp'] == firewall_rule_request.ipv4_address:
+                                description = range['Description']
+            else:
+                raise Exception(f"{len(sg)} security groups have been found by the given id '{security_group_id}'")
+        else:
+            description = firewall_rule_request.description
+
+        try:
+            response = self.client.revoke_security_group_ingress(
+                GroupId=security_group_id,
+                IpPermissions=[
+                    {
+                        'FromPort': firewall_rule_request.port,
+                        'ToPort': firewall_rule_request.port,
+                        'IpProtocol': firewall_rule_request.protocol,
+                        'IpRanges': [
+                            {
+                                'CidrIp': firewall_rule_request.ipv4_address,
+                                'Description': description
+                            },
+                        ]
+                    }
+                ]
+            )
+            if response:
+                if 'Return' in response:
+                    if response['Return'] == True:
+                        print(f"Operation performed successfully")
+                    else:
+                        print('Operating failed')
+                else:
+                    print('Unknown response format')
+                    print(response)
+        except botocore.client.ClientError as e:
+                print(f"{type(e)} - {e}")
 
     def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         raise Exception('Not implemented yet')
