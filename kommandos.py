@@ -7,7 +7,7 @@ import boto3
 import botocore.client
 
 # ubuntu server 20.04
-DEFAULT_IMAGE_ID = 'ami-0746eb3cb5c684ae6'
+DEFAULT_IMAGE_ID = 'ami-08f11f4114f566d1a'
 DEFAULT_INSTANCE_TYPE = 't2.micro'
 DEFAULT_INSTANCE_NAME = 'proxy-instance'
 DEFAULT_KEY_NAME = 'proxy-key'
