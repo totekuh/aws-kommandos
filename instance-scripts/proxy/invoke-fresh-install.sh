@@ -4,7 +4,7 @@
 ## change the service settings described below to use another port/IP address
 
 sudo apt update &&
-sudo apt install make -y &&
+sudo apt install make git -y &&
 
 echo "Installing microsocks"
 cd ~/ &&
