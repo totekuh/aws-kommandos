@@ -7,7 +7,7 @@ import boto3
 import botocore.client
 
 # ubuntu server 20.04
-DEFAULT_IMAGE_ID = 'ami-08f11f4114f566d1a'
+DEFAULT_IMAGE_ID = 'ami-0e8286b71b81c3cc1'
 DEFAULT_INSTANCE_TYPE = 't2.micro'
 DEFAULT_INSTANCE_NAME = 'proxy-instance'
 DEFAULT_KEY_NAME = 'proxy-key'
@@ -194,7 +194,8 @@ def get_arguments():
                                "eventually from linked instances. "
                                "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --delete-outbound 443/tcp:10.10.10.10/32")
-    firewall.add_argument("--security-group-id",
+    firewall.add_argument('-sg',
+                          "--security-group-id",
                           dest="security_group_id",
                           required=False,
                           type=str,
@@ -389,7 +390,8 @@ class AwsManager:
                 }
                 if verbose:
                     key['KeyFingerprint'] = kp['KeyFingerprint']
-                    key['Tags'] = kp['Tags']
+                    if 'Tags' in kp and kp['Tags']:
+                        key['Tags'] = kp['Tags']
                 pprint(key, sort_dicts=False)
         else:
             print('There are no SSH key pairs')
@@ -469,7 +471,7 @@ class AwsManager:
                 if verbose:
                     group['OwnerId'] = sg['OwnerId']
                     group['VpcId'] = sg['VpcId']
-                    
+
                 pprint(group, sort_dicts=False)
 
     ### CREATE A NEW SECURITY GROUP
@@ -772,9 +774,10 @@ class AwsManager:
             print('Running instances are:')
             for instance in instances:
                 name = ''
-                for tag in instance.tags:
-                    if 'Key' in tag and tag['Key'] == 'Name':
-                        name = tag['Value']
+                if hasattr(instance, 'tags') and instance.tags:
+                    for tag in instance.tags:
+                        if 'Key' in tag and tag['Key'] == 'Name':
+                            name = tag['Value']
                 inst = {
                     'InstanceId': instance.id,
                     'PublicIpAddress': instance.public_ip_address,
