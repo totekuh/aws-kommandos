@@ -361,7 +361,7 @@ class AwsManager:
                     }]
             }
         )
-        print(f"A new record set {hosted_zone['Name']} {record_type} {record_value} has been created")
+        print(colored(f"A new record set {hosted_zone['Name']} {record_type} {record_value} has been created", 'green'))
 
     ### DELETING DNS RECORDS
     def delete_dns_record(self, hosted_zone_name: str,
@@ -385,10 +385,12 @@ class AwsManager:
                         }]
                 }
             )
-            print(f"The record set {hosted_zone['Name']} {record_type} {record_value} has been deleted")
+            print(colored(f"The record set {hosted_zone['Name']} {record_type} {record_value} has been deleted",
+                          'yellow'))
         except Exception as e:
             if "but it was not found" in f"{e}":
-                print(f"The record set {record_type} {record_value} for fqdn {hosted_zone_name} has not been found")
+                print(colored(f"The record set {record_type} {record_value} for fqdn {hosted_zone_name} "
+                              f"has not been found", 'red'))
             else:
                 print(f"{type(e)} - {e}")
 
@@ -1053,10 +1055,6 @@ if __name__ == '__main__':
                                                 security_group_id=security_group_id,
                                                 instance_type=options.instance_type,
                                                 instance_name=instance_name)
-        if options.invoke_script:
-            aws_manager.invoke_script(instance_id=new_instance.instance_id,
-                                      file_name=options.invoke_script,
-                                      parameters=options.invoke_script_argument)
         if options.link_fqdn:
             domain_name = options.fqdn
             ttl = options.ttl
@@ -1068,3 +1066,7 @@ if __name__ == '__main__':
                                           record_type='MX',
                                           record_value=f"1 {new_instance.public_ip_address}",
                                           ttl=ttl)
+        if options.invoke_script:
+            aws_manager.invoke_script(instance_id=new_instance.instance_id,
+                                      file_name=options.invoke_script,
+                                      parameters=options.invoke_script_argument)
