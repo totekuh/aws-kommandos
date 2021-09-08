@@ -48,6 +48,21 @@ def get_arguments():
                                    help="Specify a filename of a script to execute on remote. "
                                         "You can either grab one from the ./instance-scripts/ folder "
                                         "or supply your own.")
+    starting_commands.add_argument('-is-arg',
+                                   '--invoke-script-argument',
+                                   dest='invoke_script_argument',
+                                   action='append',
+                                   required=False,
+                                   type=str,
+                                   help="Provide an argument for the specified --invoke-script script. "
+                                        "This options can be passed multiple times. "
+                                        "The parameters being passed to the script must be specified "
+                                        "in the script itself. "
+                                        "Every parameter definition must start from the new line. "
+                                        "Must be used in the following format: "
+                                        "-is-arg MICROSOCKS_IP=127.0.0.1 or "
+                                        "-is-arg MICROSOCKS_PORT=42024 or "
+                                        "--invoke-script-argument MICROSOCKS_IP=127.0.0.1")
     starting_commands.add_argument("--instance-type",
                                    dest="instance_type",
                                    required=False,
@@ -220,6 +235,37 @@ def get_arguments():
                           help="Recreate the SSH key pair if already exists")
 
     options = parser.parse_args()
+    if options.invoke_script_argument:
+        if not options.invoke_script:
+            parser.error(f"--invoke-script-argument has been passed "
+                         f"w/o the invocation script (--invoke-script) being provided. "
+                         f"Use --help for more info.")
+        else:
+            with open(options.invoke_script, 'r') as f:
+                invoke_script_content = f.read()
+            invocation_arguments = options.invoke_script_argument
+            # check the format first
+            for param in invocation_arguments:
+                if '=' not in param:
+                    parser.error(f"The '{param}' invocation script parameter "
+                                 f"doesn't fit the schema, as you must specify a parameter "
+                                 f"and its value separated by '='. "
+                                 f"Use --help for more info.")
+                chunks = param.split('=')
+                param_name = chunks[0]
+                if not param_name:
+                    parser.error(f"The '{param}' invocation script parameter "
+                                 f"doesn't fit the schema, as the parameter's name can't be empty. "
+                                 f"Use --help for more info.")
+                if param_name not in invoke_script_content:
+                    parser.error(f"The '{param_name}' parameter has not been found in the invocation script's content. "
+                                 f"Consider putting the parameter into the script. "
+                                 f"Use --help for more info.")
+                if not chunks[1]:
+                    parser.error(f"The '{param}' invocation script parameter "
+                                 f"doesn't fit the schema, as the parameter's value can't be empty. "
+                                 f"Use --help for more info.")
+
     if options.start:
         if not options.security_group_id:
             parser.error('The --security-group-id arg cannot be blank when requesting a new instance. '
@@ -785,13 +831,14 @@ class AwsManager:
                 inst = {
                     'InstanceId': instance.id,
                     'PublicIpAddress': instance.public_ip_address,
-                    'KeyPairName': instance.key_pair.key_name
+                    'KeyPairName': instance.key_pair.key_name,
+                    'SecurityGroups': instance.security_groups
                 }
                 if name:
                     inst['Name'] = name
+
                 if verbose:
                     inst['ImageId'] = instance.image_id
-                    inst['SecurityGroups'] = instance.security_groups
 
                 pprint(inst, sort_dicts=False)
         else:
@@ -858,7 +905,10 @@ class AwsManager:
                   colored(f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_pair_name}.pem", 'green'))
             return instance
 
-    def invoke_script(self, instance_id: str, file_name: str, key_pair_name: str = None):
+    def invoke_script(self, instance_id: str,
+                      file_name: str,
+                      parameters: list = None,
+                      key_pair_name: str = None):
         instance = self.get_instance(instance_id=instance_id)
         ip_address = instance.public_ip_address
         username = self.get_default_ami_user_name(image_id=instance.image_id)
@@ -870,10 +920,32 @@ class AwsManager:
         if not os.path.exists(key_pair_name):
             raise Exception(f"The RSA private key '{key_pair_name}' has not been found at the given path")
 
+        if parameters:
+            print(colored(f"Script parameters are: {parameters}", 'yellow'))
+            script_name = f"{file_name}-kommandos-temp"
+
+            content = ''
+            with open(file_name, 'r') as f:
+                for line in f.readlines():
+                    line = line.strip()
+                    for param in parameters:
+                        param_name = param.split('=')[0]
+                        if line.startswith(param_name):
+                            line = param
+                    content += line
+                    content += os.linesep
+            with open(script_name, 'w') as f:
+                f.write(content)
+        else:
+            script_name = file_name
+
         # did you even know you could pipe commands like this?
-        os.system(f"cat {file_name} | "
+        os.system(f"cat {script_name} | "
                   f'ssh -o "StrictHostKeyChecking=accept-new" {username}@{ip_address} -i {key_pair_name}')
         print(colored(f"The '{file_name}' script has been invoked as {username}@{ip_address}", 'yellow'))
+
+        if script_name.endswith('-kommandos-temp'):
+            os.remove(script_name)
 
 
 if __name__ == '__main__':
@@ -983,7 +1055,8 @@ if __name__ == '__main__':
                                                 instance_name=instance_name)
         if options.invoke_script:
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
-                                      file_name=options.invoke_script)
+                                      file_name=options.invoke_script,
+                                      parameters=options.invoke_script_argument)
         if options.link_fqdn:
             domain_name = options.fqdn
             ttl = options.ttl

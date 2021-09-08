@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# tested on ubuntu 20.04
+# tested on ubuntu server 18.04
 
 # Bash installation script to prepare a newly created instance to act as a SOCKS proxy
 ## change the service settings described below to use another port/IP address
