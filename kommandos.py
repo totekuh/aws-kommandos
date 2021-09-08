@@ -2,15 +2,16 @@
 import os
 import sys
 from pprint import pprint
+from termcolor import colored
 
 import boto3
 import botocore.client
 
-# ubuntu server 20.04
-DEFAULT_IMAGE_ID = 'ami-05f7491af5eef733a'
+# ubuntu server 18.04
+DEFAULT_IMAGE_ID = 'ami-0b1deee75235aa4bb'
 DEFAULT_INSTANCE_TYPE = 't2.micro'
-DEFAULT_INSTANCE_NAME = 'proxy-instance'
-DEFAULT_KEY_NAME = 'proxy-key'
+DEFAULT_INSTANCE_NAME = 'kommandos-instance'
+DEFAULT_KEY_NAME = 'kommandos-key'
 
 DEFAULT_DNS_TTL = 86400
 
@@ -39,7 +40,8 @@ def get_arguments():
                                         "to the IP address of the newly created instance "
                                         "for the domain specified with the --fqdn flag. "
                                         "You must own the domain name and have the hosted zone for doing that.")
-    starting_commands.add_argument('--invoke-script',
+    starting_commands.add_argument('-is',
+                                   '--invoke-script',
                                    dest='invoke_script',
                                    required=False,
                                    type=str,
@@ -123,7 +125,8 @@ def get_arguments():
                              required=False,
                              type=str,
                              help="Terminate an instance with the given instance id")
-    termination.add_argument("--terminate-all",
+    termination.add_argument('-ta',
+                             "--terminate-all",
                              dest="terminate_all",
                              action='store_true',
                              required=False,
@@ -404,7 +407,7 @@ class AwsManager:
             private_key = response['KeyMaterial']
             file_name = f"{key_name}.pem"
 
-            print(f'Saving the private key to {file_name}')
+            print(colored(f'Saving the private key to {file_name}', 'green'))
             with open(file_name, 'w') as f:
                 f.write(private_key)
             # 0x400 -r--------
@@ -412,7 +415,7 @@ class AwsManager:
 
     ### DELETE A KEY PAIR
     def delete_key_pair(self, key_name: str):
-        print(f"Deleting the SSH key pair: {key_name}")
+        print(colored(f"Deleting the SSH key pair: {key_name}", 'yellow'))
         self.ec2_client.delete_key_pair(KeyName=key_name)
 
         file_name = f"{key_name}.pem"
@@ -479,10 +482,10 @@ class AwsManager:
         try:
             self.ec2.create_security_group(GroupName=group_name,
                                            Description=description)
-            print(f"A new security group with the name '{group_name}' has been created")
+            print(colored(f"A new security group with the name '{group_name}' has been created", 'green'))
         except botocore.client.ClientError as e:
             if 'already exists' in f"{e}":
-                print(f'The security group with name {group_name} already exists')
+                print(colored(f'The security group with name {group_name} already exists', 'yellow'))
             else:
                 print(f"{type(e)} - {e}")
 
@@ -490,12 +493,12 @@ class AwsManager:
     def delete_security_group(self, security_group_id: str):
         try:
             self.ec2_client.delete_security_group(GroupId=security_group_id)
-            print(f"The security group with id '{security_group_id}' has been deleted")
+            print(colored(f"The security group with id '{security_group_id}' has been deleted", 'green'))
         except botocore.client.ClientError as e:
             if 'does not exist' in f"{e}":
-                print(f"The specified security group with id '{security_group_id}' does not exist")
+                print(colored(f"The specified security group with id '{security_group_id}' does not exist", 'red'))
             else:
-                print(f"{type(e)} - {e}")
+                print(colored(f"{type(e)} - {e}", 'red'))
 
     ### CONFIGURING DA FIREWALL
     def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
@@ -732,7 +735,8 @@ class AwsManager:
                 if not identified_user_name:
                     # resort to the default one
                     identified_user_name = 'ec2-user'
-                print(f"The default user of the AMI '{image_id}' has been identified as '{identified_user_name}'")
+                print(f"The default user of the AMI '{colored(image_id, 'green')}' "
+                      f"has been identified as '{colored(identified_user_name, 'green')}'")
                 return identified_user_name
 
     ## EC2 INSTANCES
@@ -795,13 +799,13 @@ class AwsManager:
 
     ### TERMINATING INSTANCES
     def terminate_instance(self, instance_id: str):
-        print(f'Terminating {instance_id}')
+        print(colored(f'Terminating {instance_id}', 'red'))
         self.ec2_client.terminate_instances(InstanceIds=[
             instance_id
         ])
 
     def terminate_all_running_instances(self):
-        print('Terminating all running instances')
+        print(colored('Terminating all running instances', 'red'))
         instances = self.get_running_instances()
         if instances:
             for instance in instances:
@@ -842,23 +846,23 @@ class AwsManager:
                                                  )
         new_instance = response['Instances'][0]
         if new_instance:
-            print('The instance has been created')
+            print(colored('The instance has been created', 'green'))
             print('Waiting for the server boot...')
             instance = aws_manager.get_instance(new_instance['InstanceId'])
             instance.wait_until_running()
-            print(f'The server is up and running at {instance.public_ip_address}')
+            print(f'The server is up and running at {colored(instance.public_ip_address, "green")}')
             print('Waiting until the SSH service is available...')
             aws_manager.poll_ssh_status(instance.id)
             identified_user_name = self.get_default_ami_user_name(instance.image_id)
             print("Use the following command for connecting to the instance: " +
-                  f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_pair_name}.pem")
+                  colored(f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_pair_name}.pem", 'green'))
             return instance
 
     def invoke_script(self, instance_id: str, file_name: str, key_pair_name: str = None):
         instance = self.get_instance(instance_id=instance_id)
         ip_address = instance.public_ip_address
         username = self.get_default_ami_user_name(image_id=instance.image_id)
-        print(f"Invoking the {file_name} script on the instance hosted at {ip_address}")
+        print(colored(f"Invoking the {file_name} script on the instance hosted at {ip_address}", 'yellow'))
 
         if not key_pair_name:
             key_pair_name = f"{instance.key_pair.name}.pem"
@@ -869,7 +873,7 @@ class AwsManager:
         # did you even know you could pipe commands like this?
         os.system(f"cat {file_name} | "
                   f'ssh -o "StrictHostKeyChecking=accept-new" {username}@{ip_address} -i {key_pair_name}')
-        print(f"The '{file_name}' script has been invoked as {username}@{ip_address}")
+        print(colored(f"The '{file_name}' script has been invoked as {username}@{ip_address}", 'yellow'))
 
 
 if __name__ == '__main__':
@@ -967,7 +971,7 @@ if __name__ == '__main__':
             aws_manager.create_key_pair(key_name=key_pair_name)
         except Exception as e:
             if 'InvalidKeyPair.Duplicate' in f"{e}":
-                print(f"The SSH key pair with the name '{key_pair_name}' already exists")
+                print(colored(f"The SSH key pair with the name '{key_pair_name}' already exists", 'yellow'))
             else:
                 print(f"{type(e)} {e}")
                 exit(1)
