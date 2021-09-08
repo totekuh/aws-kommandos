@@ -182,34 +182,38 @@ def get_arguments():
                           help="Delete the security group with the given --security-group-id")
     firewall.add_argument('--allow-inbound',
                           dest='allow_inbound',
+                          action='append',
                           required=False,
                           type=str,
                           help="Specify an inbound firewall rule to be applied for the given security group and "
-                               "eventually for created instances. "
+                               "eventually for created instances. Can be passed multiple times. "
                                "Should be in the following format: --allow-inbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --allow-inbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--allow-outbound',
                           dest='allow_outbound',
+                          action='append',
                           required=False,
                           type=str,
                           help="Specify an outbound firewall rule to be applied for the given security group and "
-                               "eventually for created instances. "
+                               "eventually for created instances. Can be passed multiple times. "
                                "Should be in the following format: --allow-outbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --allow-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-inbound',
                           dest='delete_inbound',
+                          action='append',
                           required=False,
                           type=str,
                           help="Specify an inbound firewall rule to be deleted from the given security group and "
-                               "eventually from linked instances. "
+                               "eventually from linked instances. Can be passed multiple times. "
                                "Should be in the following format: --delete-inbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('--delete-outbound',
                           dest='delete_outbound',
+                          action='append',
                           required=False,
                           type=str,
                           help="Specify an outbound firewall rule to be deleted from the given security group and "
-                               "eventually from linked instances. "
+                               "eventually from linked instances. Can be passed multiple times. "
                                "Should be in the following format: --delete-outbound 443/tcp:10.10.10.10/32:HTTPS-rule "
                                "or --delete-outbound 443/tcp:10.10.10.10/32")
     firewall.add_argument('-sg',
@@ -1003,20 +1007,24 @@ if __name__ == '__main__':
         aws_manager.create_security_group(group_name=name,
                                           description=description)
     if options.delete_security_group:
-        aws_manager.delete_security_group(security_group_id=options.security_group_id)
+        aws_manager.delete_security_group(security_group_id=security_group_id)
 
     if options.allow_inbound:
-        aws_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(options.allow_inbound),
-                                     security_group_id=options.security_group_id)
+        for rule in options.allow_inbound:
+            aws_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+                                         security_group_id=security_group_id)
     if options.allow_outbound:
-        aws_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(options.allow_outbound),
-                                    security_group_id=options.security_group_id)
+        for rule in options.allow_outbound:
+            aws_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+                                         security_group_id=security_group_id)
     if options.delete_inbound:
-        aws_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(options.delete_inbound),
-                                        security_group_id=options.security_group_id)
+        for rule in options.delete_inbound:
+            aws_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+                                         security_group_id=security_group_id)
     if options.delete_outbound:
-        aws_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(options.delete_outbound),
-                                       security_group_id=options.security_group_id)
+        for rule in options.delete_outbound:
+            aws_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+                                         security_group_id=security_group_id)
 
     if options.stats:
         aws_manager.print_running_instances(verbose=options.verbose)
