@@ -233,6 +233,12 @@ def get_arguments():
                           action='store_true',
                           required=False,
                           help="Recreate the SSH key pair if already exists")
+    ssh_keys.add_argument('--delete-key-pair',
+                          dest='delete_key_pair',
+                          action='store_true',
+                          required=False,
+                          help="Specify if the key pair must be deleted. "
+                               "Takes the value from the --key-pair-name parameter.")
 
     options = parser.parse_args()
     if options.invoke_script_argument:
@@ -965,6 +971,9 @@ if __name__ == '__main__':
         image = aws_manager.get_ami_image(image_id=image_id)
         pprint(image)
         default_ami_user = aws_manager.get_default_ami_user_name(image_id=image_id)
+
+    if options.delete_key_pair:
+        aws_manager.delete_key_pair(key_name=key_pair_name)
 
     if options.terminate:
         aws_manager.terminate_instance(instance_id=options.terminate)
