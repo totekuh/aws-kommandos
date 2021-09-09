@@ -32,6 +32,16 @@ def get_arguments():
                                    action='store_true',
                                    required=False,
                                    help="Start a new EC2 instance")
+    starting_commands.add_argument('-dat',
+                                   '--disable-api-termination',
+                                   dest='disable_api_termination',
+                                   action='store_true',
+                                   required=False,
+                                   help="Provide this flag to disable API termination of the new instance. "
+                                        "You would need to manually login to the AWS console "
+                                        "for disabling the instance. "
+                                        "Useful if you wanna ensure you won't accidentally terminate "
+                                        "the required instance.")
     starting_commands.add_argument('--link-fqdn',
                                    action='store_true',
                                    dest='link_fqdn',
@@ -859,13 +869,17 @@ class AwsManager:
 
     ### TERMINATING INSTANCES
     def terminate_instance(self, instance_id: str):
-        print(colored(f'Terminating {instance_id}', 'red'))
-        self.ec2_client.terminate_instances(InstanceIds=[
-            instance_id
-        ])
+        print(colored(f'Terminating {instance_id}', 'magenta'))
+        try:
+            self.ec2_client.terminate_instances(InstanceIds=[
+                instance_id
+            ])
+        except botocore.client.ClientError as e:
+            if 'may not be terminated' in f"{e}":
+                print(colored(f"The {instance_id} instance has API termination disabled", 'red'))
 
     def terminate_all_running_instances(self):
-        print(colored('Terminating all running instances', 'red'))
+        print(colored('Terminating all running instances', 'magenta'))
         instances = self.get_running_instances()
         if instances:
             for instance in instances:
@@ -879,9 +893,12 @@ class AwsManager:
                      key_pair_name: str,
                      security_group_id: str,
                      instance_type: str,
-                     instance_name: str):
+                     instance_name: str,
+                     disable_api_termination: bool = False):
         print(f'Starting a new instance: '
               f'{image_id} {key_pair_name} {security_group_id} {instance_type} {instance_name}')
+        if disable_api_termination:
+            print(colored('API termination for that instance has been disabled', 'yellow'))
         response = self.ec2_client.run_instances(InstanceType=instance_type,
                                                  ImageId=image_id,
                                                  KeyName=key_pair_name,
@@ -897,6 +914,7 @@ class AwsManager:
                                                          ]
                                                      },
                                                  ],
+                                                 DisableApiTermination=disable_api_termination,
                                                  # The maximum number of instances to launch.
                                                  # If you specify more instances than Amazon EC2 can launch
                                                  # in the target Availability Zone,
@@ -1082,7 +1100,8 @@ if __name__ == '__main__':
                                                 key_pair_name=key_pair_name,
                                                 security_group_id=security_group_id,
                                                 instance_type=options.instance_type,
-                                                instance_name=instance_name)
+                                                instance_name=instance_name,
+                                                disable_api_termination=options.disable_api_termination)
         if options.link_fqdn:
             domain_name = options.fqdn
             ttl = options.ttl
