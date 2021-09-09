@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import os
+import subprocess
 import sys
 from pprint import pprint
-from termcolor import colored
 
 import boto3
 import botocore.client
+from termcolor import colored
 
 # ubuntu server 18.04
 DEFAULT_IMAGE_ID = 'ami-0b1deee75235aa4bb'
@@ -951,9 +952,19 @@ class AwsManager:
         else:
             script_name = file_name
 
-        # did you even know you could pipe commands like this?
-        os.system(f"cat {script_name} | "
-                  f'ssh -o "StrictHostKeyChecking=accept-new" {username}@{ip_address} -i {key_pair_name}')
+        remote_script_folder = "/tmp"
+        if '/' in script_name:
+            remote_script_name = f"{remote_script_folder}/{script_name.split('/')[-1]}"
+        else:
+            remote_script_name = f"{remote_script_folder}/{script_name}"
+
+        subprocess.call(['scp', '-o', 'StrictHostKeyChecking=accept-new',
+                         '-i', key_pair_name,
+                         script_name, f"{username}@{ip_address}:{remote_script_name}"])
+        subprocess.call(['ssh', '-o', 'StrictHostKeyChecking=accept-new',
+                         '-i', key_pair_name,
+                         f"{username}@{ip_address}",
+                         "/bin/bash", remote_script_name])
         print(colored(f"The '{file_name}' script has been invoked as {username}@{ip_address}", 'yellow'))
 
         if script_name.endswith('-kommandos-temp'):
@@ -1016,15 +1027,15 @@ if __name__ == '__main__':
     if options.allow_outbound:
         for rule in options.allow_outbound:
             aws_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
-                                         security_group_id=security_group_id)
+                                        security_group_id=security_group_id)
     if options.delete_inbound:
         for rule in options.delete_inbound:
             aws_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
-                                         security_group_id=security_group_id)
+                                            security_group_id=security_group_id)
     if options.delete_outbound:
         for rule in options.delete_outbound:
             aws_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
-                                         security_group_id=security_group_id)
+                                           security_group_id=security_group_id)
 
     if options.stats:
         aws_manager.print_running_instances(verbose=options.verbose)
