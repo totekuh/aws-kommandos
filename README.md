@@ -25,9 +25,11 @@ The *.pem files are also ignored by Git. These are SSH keys Kommandos will be cr
 
 ## Installation
 
-### Install the tools
+### Install the toolset
 
-`bash install.sh`
+`apt install python3 python3-pip awscli`
+
+`pip3 install aws-kommandos`
 
 ### Configure the AWS client
 

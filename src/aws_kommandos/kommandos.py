@@ -320,7 +320,7 @@ def get_arguments():
     return options
 
 
-class FirewallRuleRequest:
+class kommandos:
     def __init__(self, rule_from_command_line):
         if ':' not in rule_from_command_line:
             raise Exception('Invalid format of the firewall rule. Use --help to see an example.')
@@ -570,7 +570,7 @@ class AwsManager:
                 print(colored(f"{type(e)} - {e}", 'red'))
 
     ### CONFIGURING DA FIREWALL
-    def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+    def add_ingress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
         print(f"Authorizing ingress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
             description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
@@ -609,7 +609,7 @@ class AwsManager:
             else:
                 print(f"{type(e)} - {e}")
 
-    def add_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+    def add_egress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
         print(f"Authorizing egress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
             description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
@@ -648,7 +648,7 @@ class AwsManager:
             else:
                 print(f"{type(e)} - {e}")
 
-    def delete_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+    def delete_ingress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
         print(f"Revoking ingress '{firewall_rule_request}' on '{security_group_id}'")
 
         # find the description if the one wasn't supplied
@@ -697,7 +697,7 @@ class AwsManager:
         except botocore.client.ClientError as e:
             print(f"{type(e)} - {e}")
 
-    def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
+    def delete_egress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
         print(f"Revoking egress '{firewall_rule_request}' on '{security_group_id}'")
 
         # find the description if the one wasn't supplied
@@ -988,22 +988,22 @@ class AwsManager:
         if script_name.endswith('-kommandos-temp'):
             os.remove(script_name)
 
-
-if __name__ == '__main__':
+def main():
     options = get_arguments()
 
     key_pair_name = options.key_pair_name
     image_id = options.image_id
     security_group_id = options.security_group_id
-    instance_type = options.instance_type
     instance_name = options.instance_name
+
+    domain_name = options.fqdn
 
     aws_manager = AwsManager()
 
     if options.get_ami:
         image = aws_manager.get_ami_image(image_id=image_id)
         pprint(image)
-        default_ami_user = aws_manager.get_default_ami_user_name(image_id=image_id)
+        aws_manager.get_default_ami_user_name(image_id=image_id)
 
     if options.delete_key_pair:
         aws_manager.delete_key_pair(key_name=key_pair_name)
@@ -1014,12 +1014,12 @@ if __name__ == '__main__':
         aws_manager.terminate_all_running_instances()
 
     if options.add_record:
-        aws_manager.create_dns_record(hosted_zone_name=options.fqdn,
+        aws_manager.create_dns_record(hosted_zone_name=domain_name,
                                       record_type=options.record_type,
                                       record_value=options.record_value,
                                       ttl=options.ttl)
     if options.delete_record:
-        aws_manager.delete_dns_record(hosted_zone_name=options.fqdn,
+        aws_manager.delete_dns_record(hosted_zone_name=domain_name,
                                       record_type=options.record_type,
                                       record_value=options.record_value,
                                       ttl=options.ttl)
@@ -1040,19 +1040,19 @@ if __name__ == '__main__':
 
     if options.allow_inbound:
         for rule in options.allow_inbound:
-            aws_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+            aws_manager.add_ingress_rule(firewall_rule_request=kommandos(rule),
                                          security_group_id=security_group_id)
     if options.allow_outbound:
         for rule in options.allow_outbound:
-            aws_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+            aws_manager.add_egress_rule(firewall_rule_request=kommandos(rule),
                                         security_group_id=security_group_id)
     if options.delete_inbound:
         for rule in options.delete_inbound:
-            aws_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+            aws_manager.delete_ingress_rule(firewall_rule_request=kommandos(rule),
                                             security_group_id=security_group_id)
     if options.delete_outbound:
         for rule in options.delete_outbound:
-            aws_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
+            aws_manager.delete_egress_rule(firewall_rule_request=kommandos(rule),
                                            security_group_id=security_group_id)
 
     if options.stats:
@@ -1103,7 +1103,6 @@ if __name__ == '__main__':
                                                 instance_name=instance_name,
                                                 disable_api_termination=options.disable_api_termination)
         if options.link_fqdn:
-            domain_name = options.fqdn
             ttl = options.ttl
             aws_manager.create_dns_record(hosted_zone_name=domain_name,
                                           record_type='A',
@@ -1117,3 +1116,6 @@ if __name__ == '__main__':
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
                                       file_name=options.invoke_script,
                                       parameters=options.invoke_script_argument)
+
+if __name__ == '__main__':
+    main()

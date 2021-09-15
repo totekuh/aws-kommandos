@@ -1,2 +1,4 @@
 *.pem
 custom-invoke-*.sh
+dist/
+aws_kommandos.egg-info/
