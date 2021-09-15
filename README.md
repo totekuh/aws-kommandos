@@ -18,22 +18,31 @@ You're only expected to create an AWS account and configure the access keys for 
 
 See the Usage section for getting an idea how to use it.
 
-Bash scripts stored under the instance-scripts/ folder are intended for invocation on remote. Use the pattern name
-custom-invoke*.sh to have git ignoring your scripts.
-
-The *.pem files are also ignored by Git. These are SSH keys Kommandos will be creating for you.
+Kommandos automatically creates its directory under the ~/.aws-kommandos path to store SSH private keys it creates.
 
 ## Installation
 
 ### Install the toolset
 
-`apt install python3 python3-pip awscli`
+```bash
+apt install python3 python3-pip
+pip3 install aws-kommandos
+```
 
-`pip3 install aws-kommandos`
+### Configure the AWS credentials
 
-### Configure the AWS client
-
+The first option is to use the *awscli* client to configure your AWS credentials used by Kommandos.
 `aws configure`
+
+The second options is to export the AWS credentials as environment variables
+```bash
+export AWS_ACCESS_KEY_ID=key_id
+export AWS_ACCESS_KEY_SECRET=secret
+export AWS_REGION=region
+```
+
+The third option is to use the command-line arguments to pass credentials to Kommandos
+`aws-kommandos --access-key-id <key_id> --access-key-secret <secret> --region-name <region>`
 
 ## Usage
 

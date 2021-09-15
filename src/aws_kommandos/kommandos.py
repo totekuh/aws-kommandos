@@ -16,6 +16,8 @@ DEFAULT_KEY_NAME = 'kommandos-key'
 
 DEFAULT_DNS_TTL = 86400
 
+KOMMANDOS_HOME_FOLDER = f'{os.path.expanduser("~")}/.aws-kommandos'
+
 if 'win' in sys.platform:
     print("Windows ain't supported")
     exit()
@@ -24,6 +26,34 @@ if 'win' in sys.platform:
 def get_arguments():
     from argparse import ArgumentParser
     parser = ArgumentParser(description='AWS Kommandos Script')
+
+    credentials = parser.add_argument_group('AWS Credentials')
+    credentials.add_argument('--access-key-id',
+                             dest='access_key_id',
+                             required=False,
+                             type=str,
+                             help="Specify the AWS access key ID to use. "
+                                  "If omitted, the script grabs the key ID "
+                                  "from the AWS_ACCESS_KEY_ID env variable. "
+                                  "If that variable does not present, the script takes default credentials "
+                                  "located in the ~/.aws/credentials file.")
+    credentials.add_argument('--access-key-secret',
+                             dest='access_key_secret',
+                             required=False,
+                             type=str,
+                             help="Specify the AWS access key secret to use. "
+                                  "If omitted, the script grabs the key secret "
+                                  "from the AWS_ACCESS_KEY_SECRET env variable. "
+                                  "If that variable does not present, the script takes default credentials "
+                                  "located in the ~/.aws/credentials file.")
+    credentials.add_argument('--region-name',
+                             dest='region_name',
+                             required=False,
+                             type=str,
+                             help="Specify the AWS region to use. "
+                                  "If omitted, the script grabs the key secret from the AWS_REGION env variable. "
+                                  "If that variable does not present, the script takes default credentials "
+                                  "located in the ~/.aws/config file.")
 
     # EC2 Starting Instances
     starting_commands = parser.add_argument_group('Starting Instances')
@@ -39,9 +69,21 @@ def get_arguments():
                                    required=False,
                                    help="Provide this flag to disable API termination of the new instance. "
                                         "You would need to manually login to the AWS console "
-                                        "for disabling the instance. "
+                                        "for shutting down the instance. "
                                         "Useful if you wanna ensure you won't accidentally terminate "
-                                        "the required instance.")
+                                        "something you may need in the future.")
+    starting_commands.add_argument('--poll-ssh',
+                                   dest='poll_ssh',
+                                   action='store_true',
+                                   required=False,
+                                   help="Specify this flag if you want to poll the SSH service on remote "
+                                        "after the server boot. "
+                                        "The netcat tool needs to be installed on the system to use that. "
+                                        "Keep in mind that you should provide this flag in case you wanna "
+                                        "trigger script invocation on remote, "
+                                        "since Kommandos needs to know when the service is available for invoking it. "
+                                        "Also make sure an inbound rule in the corresponding security group "
+                                        "for connecting to the 22/tcp port.")
     starting_commands.add_argument('--link-fqdn',
                                    action='store_true',
                                    dest='link_fqdn',
@@ -242,7 +284,9 @@ def get_arguments():
                           default=DEFAULT_KEY_NAME,
                           type=str,
                           help="Specify the key pair name to use alongside the created instance. "
-                               f"Default is '{DEFAULT_KEY_NAME}'.")
+                               f"Default is '{DEFAULT_KEY_NAME}'. "
+                               f"The keys managed by Kommandos "
+                               f"are stored under the '{KOMMANDOS_HOME_FOLDER}' directory.")
     ssh_keys.add_argument("--force-recreate-key",
                           dest="force_recreate_key",
                           action='store_true',
@@ -256,6 +300,16 @@ def get_arguments():
                                "Takes the value from the --key-pair-name parameter.")
 
     options = parser.parse_args()
+    if options.access_key_id and not options.access_key_secret:
+        parser.error(f"The --access-key-id argument must go together with --access-key-secret argument. "
+                     f"Use --help for more info.")
+    if not options.access_key_id and options.access_key_secret:
+        parser.error(f"The --access-key-secret argument must go together with --access-key-id argument. "
+                     f"Use --help for more info.")
+    if (options.access_key_id and options.access_key_secret) and not options.region_name:
+        parser.error("The region name must be supplied with the --region-name argument when credentials"
+                     " are passed via command line."
+                     "Use --help for more info.")
     if options.invoke_script_argument:
         if not options.invoke_script:
             parser.error(f"--invoke-script-argument has been passed "
@@ -291,8 +345,12 @@ def get_arguments():
         if not options.security_group_id:
             parser.error('The --security-group-id arg cannot be blank when requesting a new instance. '
                          'Use --help for more info.')
-        if options.invoke_script and not os.path.exists(options.invoke_script):
-            parser.error("The script file you're providing with --invoke-script doesn't seem to exist")
+        if options.invoke_script:
+            if not os.path.exists(options.invoke_script):
+                parser.error("The script file you're providing with --invoke-script doesn't seem to exist")
+            if not options.poll_ssh:
+                parser.error('The --poll-ssh argument must be given if you require remote script invocation. '
+                             'Use --help for more info.')
     else:
         if options.invoke_script:
             parser.error("Invoking scripts on remote is only supported while creating new instances (at least yet)")
@@ -320,7 +378,7 @@ def get_arguments():
     return options
 
 
-class kommandos:
+class FirewallRuleRequest:
     def __init__(self, rule_from_command_line):
         if ':' not in rule_from_command_line:
             raise Exception('Invalid format of the firewall rule. Use --help to see an example.')
@@ -347,10 +405,29 @@ class kommandos:
 
 
 class AwsManager:
-    def __init__(self):
-        self.ec2 = boto3.resource('ec2')
-        self.route53_client = boto3.client('route53')
-        self.ec2_client = boto3.client('ec2')
+    def __init__(self,
+                 aws_access_key_id: str = None,
+                 aws_access_key_secret: str = None,
+                 region_name: str = None):
+        self.home_folder = KOMMANDOS_HOME_FOLDER
+        try:
+            self.ec2 = boto3.resource('ec2', aws_access_key_id=aws_access_key_id,
+                                      aws_secret_access_key=aws_access_key_secret,
+                                      region_name=region_name)
+            self.route53_client = boto3.client('route53', aws_access_key_id=aws_access_key_id,
+                                               aws_secret_access_key=aws_access_key_secret,
+                                               region_name=region_name)
+            self.ec2_client = boto3.client('ec2', aws_access_key_id=aws_access_key_id,
+                                           aws_secret_access_key=aws_access_key_secret,
+                                           region_name=region_name)
+
+            if not os.path.exists(self.home_folder):
+                os.makedirs(self.home_folder)
+                print(f"The Kommandos's home folder has been created at '{self.home_folder}'. "
+                      f"The SSH private keys that are to be created by Kommandos will be stored there.")
+        except Exception as e:
+            print(f"Kommandos initialization failed: {e}")
+            exit(1)
 
     ## DNS
     ### GETTING ALL HOSTING ZONES
@@ -456,14 +533,20 @@ class AwsManager:
         if key_pairs:
             print('The SSH key pairs are:')
             for kp in key_pairs:
+                key_name = kp['KeyName']
                 key = {
                     'KeyPairId': kp['KeyPairId'],
-                    'KeyName': kp['KeyName']
+                    'KeyName': key_name
                 }
                 if verbose:
                     key['KeyFingerprint'] = kp['KeyFingerprint']
                     if 'Tags' in kp and kp['Tags']:
                         key['Tags'] = kp['Tags']
+                if os.path.exists(f"{self.home_folder}/{key_name}.pem"):
+                    key_local_path = f"{self.home_folder}/{key_name}.pem"
+                else:
+                    key_local_path = '-'
+                key['KeyLocalPath'] = key_local_path
                 pprint(key, sort_dicts=False)
         else:
             print('There are no SSH key pairs')
@@ -475,12 +558,13 @@ class AwsManager:
         if response and 'KeyMaterial' in response:
             private_key = response['KeyMaterial']
             file_name = f"{key_name}.pem"
+            key_path = f"{self.home_folder}/{file_name}"
 
-            print(colored(f'Saving the private key to {file_name}', 'green'))
-            with open(file_name, 'w') as f:
+            print(colored(f'Saving the private key to {key_path}', 'green'))
+            with open(key_path, 'w') as f:
                 f.write(private_key)
             # 0x400 -r--------
-            os.chmod(file_name, 0o400)
+            os.chmod(key_path, 0o400)
 
     ### DELETE A KEY PAIR
     def delete_key_pair(self, key_name: str):
@@ -488,9 +572,10 @@ class AwsManager:
         self.ec2_client.delete_key_pair(KeyName=key_name)
 
         file_name = f"{key_name}.pem"
-        if os.path.exists(file_name):
-            os.chmod(file_name, 0o600)
-            os.remove(file_name)
+        key_path = f"{self.home_folder}/{file_name}"
+        if os.path.exists(key_path):
+            os.chmod(key_path, 0o600)
+            os.remove(key_path)
 
     ## SECURITY GROUPS
     ### GET SECURITY GROUPS
@@ -570,7 +655,7 @@ class AwsManager:
                 print(colored(f"{type(e)} - {e}", 'red'))
 
     ### CONFIGURING DA FIREWALL
-    def add_ingress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
+    def add_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Authorizing ingress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
             description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
@@ -609,7 +694,7 @@ class AwsManager:
             else:
                 print(f"{type(e)} - {e}")
 
-    def add_egress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
+    def add_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Authorizing egress '{firewall_rule_request}' on '{security_group_id}'")
         if not firewall_rule_request.description:
             description = f"{firewall_rule_request.port}-{firewall_rule_request.protocol}-custom"
@@ -648,7 +733,7 @@ class AwsManager:
             else:
                 print(f"{type(e)} - {e}")
 
-    def delete_ingress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
+    def delete_ingress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Revoking ingress '{firewall_rule_request}' on '{security_group_id}'")
 
         # find the description if the one wasn't supplied
@@ -697,7 +782,7 @@ class AwsManager:
         except botocore.client.ClientError as e:
             print(f"{type(e)} - {e}")
 
-    def delete_egress_rule(self, firewall_rule_request: kommandos, security_group_id: str):
+    def delete_egress_rule(self, firewall_rule_request: FirewallRuleRequest, security_group_id: str):
         print(f"Revoking egress '{firewall_rule_request}' on '{security_group_id}'")
 
         # find the description if the one wasn't supplied
@@ -894,7 +979,8 @@ class AwsManager:
                      security_group_id: str,
                      instance_type: str,
                      instance_name: str,
-                     disable_api_termination: bool = False):
+                     disable_api_termination: bool = False,
+                     poll_ssh: bool = False):
         print(f'Starting a new instance: '
               f'{image_id} {key_pair_name} {security_group_id} {instance_type} {instance_name}')
         if disable_api_termination:
@@ -926,30 +1012,32 @@ class AwsManager:
         if new_instance:
             print(colored('The instance has been created', 'green'))
             print('Waiting for the server boot...')
-            instance = aws_manager.get_instance(new_instance['InstanceId'])
+            instance = self.get_instance(new_instance['InstanceId'])
             instance.wait_until_running()
             print(f'The server is up and running at {colored(instance.public_ip_address, "green")}')
-            print('Waiting until the SSH service is available...')
-            aws_manager.poll_ssh_status(instance.id)
+            if poll_ssh:
+                print('Waiting until the SSH service is available...')
+                self.poll_ssh_status(instance.id)
             identified_user_name = self.get_default_ami_user_name(instance.image_id)
+            key_path = f"{self.home_folder}/{key_pair_name}.pem"
             print("Use the following command for connecting to the instance: " +
-                  colored(f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_pair_name}.pem", 'green'))
+                  colored(f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_path}", 'green'))
             return instance
 
     def invoke_script(self, instance_id: str,
                       file_name: str,
                       parameters: list = None,
-                      key_pair_name: str = None):
+                      key_pair_path: str = None):
         instance = self.get_instance(instance_id=instance_id)
         ip_address = instance.public_ip_address
         username = self.get_default_ami_user_name(image_id=instance.image_id)
         print(colored(f"Invoking the {file_name} script on the instance hosted at {ip_address}", 'yellow'))
 
-        if not key_pair_name:
-            key_pair_name = f"{instance.key_pair.name}.pem"
+        if not key_pair_path:
+            key_pair_path = f"{self.home_folder}/{instance.key_pair.name}.pem"
 
-        if not os.path.exists(key_pair_name):
-            raise Exception(f"The RSA private key '{key_pair_name}' has not been found at the given path")
+        if not os.path.exists(key_pair_path):
+            raise Exception(f"The RSA private key '{key_pair_path}' has not been found at the given path")
 
         if parameters:
             print(colored(f"Script parameters are: {parameters}", 'yellow'))
@@ -977,10 +1065,10 @@ class AwsManager:
             remote_script_name = f"{remote_script_folder}/{script_name}"
 
         subprocess.call(['scp', '-o', 'StrictHostKeyChecking=accept-new',
-                         '-i', key_pair_name,
+                         '-i', key_pair_path,
                          script_name, f"{username}@{ip_address}:{remote_script_name}"])
         subprocess.call(['ssh', '-o', 'StrictHostKeyChecking=accept-new',
-                         '-i', key_pair_name,
+                         '-i', key_pair_path,
                          f"{username}@{ip_address}",
                          "/bin/bash", remote_script_name])
         print(colored(f"The '{file_name}' script has been invoked as {username}@{ip_address}", 'yellow'))
@@ -988,8 +1076,26 @@ class AwsManager:
         if script_name.endswith('-kommandos-temp'):
             os.remove(script_name)
 
+
 def main():
     options = get_arguments()
+
+    # find credentials
+    if options.access_key_id and options.access_key_secret and options.region_name:
+        access_key_id = options.access_key_id
+        access_key_secret = options.access_key_secret
+        region_name = options.region_name
+    elif 'AWS_ACCESS_KEY_ID' in os.environ \
+            and 'AWS_ACCESS_KEY_SECRET' in os.environ \
+            and 'AWS_REGION' in os.environ:
+        access_key_id = os.environ['AWS_ACCESS_KEY_ID']
+        access_key_secret = os.environ['AWS_ACCESS_KEY_SECRET']
+        region_name = os.environ['AWS_REGION']
+    else:
+        # assume the AWS client's been already configured
+        access_key_id = None
+        access_key_secret = None
+        region_name = None
 
     key_pair_name = options.key_pair_name
     image_id = options.image_id
@@ -998,7 +1104,9 @@ def main():
 
     domain_name = options.fqdn
 
-    aws_manager = AwsManager()
+    aws_manager = AwsManager(aws_access_key_id=access_key_id,
+                             aws_access_key_secret=access_key_secret,
+                             region_name=region_name)
 
     if options.get_ami:
         image = aws_manager.get_ami_image(image_id=image_id)
@@ -1040,19 +1148,19 @@ def main():
 
     if options.allow_inbound:
         for rule in options.allow_inbound:
-            aws_manager.add_ingress_rule(firewall_rule_request=kommandos(rule),
+            aws_manager.add_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
                                          security_group_id=security_group_id)
     if options.allow_outbound:
         for rule in options.allow_outbound:
-            aws_manager.add_egress_rule(firewall_rule_request=kommandos(rule),
+            aws_manager.add_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
                                         security_group_id=security_group_id)
     if options.delete_inbound:
         for rule in options.delete_inbound:
-            aws_manager.delete_ingress_rule(firewall_rule_request=kommandos(rule),
+            aws_manager.delete_ingress_rule(firewall_rule_request=FirewallRuleRequest(rule),
                                             security_group_id=security_group_id)
     if options.delete_outbound:
         for rule in options.delete_outbound:
-            aws_manager.delete_egress_rule(firewall_rule_request=kommandos(rule),
+            aws_manager.delete_egress_rule(firewall_rule_request=FirewallRuleRequest(rule),
                                            security_group_id=security_group_id)
 
     if options.stats:
@@ -1101,7 +1209,8 @@ def main():
                                                 security_group_id=security_group_id,
                                                 instance_type=options.instance_type,
                                                 instance_name=instance_name,
-                                                disable_api_termination=options.disable_api_termination)
+                                                disable_api_termination=options.disable_api_termination,
+                                                poll_ssh=options.poll_ssh)
         if options.link_fqdn:
             ttl = options.ttl
             aws_manager.create_dns_record(hosted_zone_name=domain_name,
@@ -1116,6 +1225,7 @@ def main():
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
                                       file_name=options.invoke_script,
                                       parameters=options.invoke_script_argument)
+
 
 if __name__ == '__main__':
     main()
