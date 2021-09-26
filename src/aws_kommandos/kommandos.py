@@ -877,6 +877,11 @@ class AwsManager:
 
                 identified_user_name = ''
                 for os, user in user_mapping.items():
+                    # the kali image - a special case
+                    if image['ImageId'] == 'ami-0899c3c82cdfd00f1':
+                        identified_user_name = 'kali'
+                        break
+
                     if 'Name' in image and os in image['Name'].lower():
                         identified_user_name = user
                         break
