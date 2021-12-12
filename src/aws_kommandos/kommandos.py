@@ -80,8 +80,8 @@ def get_arguments():
                                    help="Specify this flag if you want to poll the SSH service on remote "
                                         "after the server boot. "
                                         "The netcat tool needs to be installed on the system to use that. "
-                                        "Keep in mind that you should provide this flag in case you wanna "
-                                        "trigger script invocation on remote, "
+                                        "Keep in mind that you should provide this flag in case you want to "
+                                        "enable script invocation on remote, "
                                         "since Kommandos needs to know when the service is available for invoking it. "
                                         "Also make sure an inbound rule in the corresponding security group "
                                         "for connecting to the 22/tcp port.")
@@ -131,6 +131,20 @@ def get_arguments():
                                    type=str,
                                    help="Specify the instance name. "
                                         f"Default is '{DEFAULT_INSTANCE_NAME}'.")
+
+    connect = parser.add_argument_group("EC2 Connection Commands")
+    connect.add_argument('--connect',
+                         dest='connect',
+                         required=False,
+                         help='Specify an instance-id to connect to. '
+                              'The SSH port (22/tcp) should be reachable for doing that. '
+                              "The private key is taken from the argument --key-pair-name and "
+                              "is fetched from the Kommandos S3 bucket if doesn't exist locally.")
+    connect.add_argument('--user',
+                         dest='user',
+                         required=False,
+                         help='Specify a username to use while connecting to the instance via SSH. '
+                              'If omitted, the default user name of the AMI image is used.')
 
     # Route53 Managing Domains
     route53 = parser.add_argument_group('Route53 Domain Management')
@@ -287,7 +301,8 @@ def get_arguments():
                           help="Specify the key pair name to use alongside the created instance. "
                                f"Default is '{DEFAULT_KEY_NAME}'. "
                                f"The keys managed by Kommandos "
-                               f"are stored under the '{KOMMANDOS_HOME_FOLDER}' directory.")
+                               f"are stored under the '{KOMMANDOS_HOME_FOLDER}' directory "
+                               f"and are uploaded to the Kommandos managed S3 bucket.")
     ssh_keys.add_argument("--force-recreate-key",
                           dest="force_recreate_key",
                           action='store_true',
@@ -447,7 +462,7 @@ class AwsManager:
     def get_bucket(self, bucket_name: str):
         buckets = self.get_all_buckets()
         for bucket in buckets:
-            for k,v in bucket.items():
+            for k, v in bucket.items():
                 if 'Name' == k and bucket_name == v:
                     return bucket
 
@@ -482,8 +497,8 @@ class AwsManager:
                 print(f"Failed to delete the S3 bucket: {e}")
 
     ### GETTING A FILE FROM S3
-    def get_file_from_bucket(self, bucket_name, remote_file_name, local_file_name):
-        print(f"Downloading '{remote_file_name}' from s3://'{bucket_name}' to '{local_file_name}'")
+    def download_file_from_bucket(self, bucket_name, remote_file_name, local_file_name):
+        print(f"Downloading '{remote_file_name}' from s3://{bucket_name} to '{local_file_name}'")
         try:
             self.s3_client.download_file(
                 Bucket=bucket_name,
@@ -491,18 +506,36 @@ class AwsManager:
                 Filename=local_file_name
             )
             if os.path.exists(local_file_name):
-                print("The file has been downloaded")
+                print(f"{remote_file_name} has been downloaded")
+                return True
         except Exception as e:
             if "Not Found" in f"{e}":
                 print(f"The file '{remote_file_name}' has not been found on '{bucket_name}' bucket")
+            else:
+                print(f"Failed to download the file from the S3 bucket: {e}")
 
     ### UPLOADING A FILE TO S3
     def upload_file_to_bucket(self, bucket_name, local_file_name):
-        pass
+        print(f"Uploading '{local_file_name}' to s3://{bucket_name}")
+        try:
+            self.s3_client.upload_file(
+                Bucket=bucket_name,
+                Filename=local_file_name,
+                Key=os.path.basename(local_file_name)
+            )
+        except Exception as e:
+            print(f"Failed to upload a file from to the S3 bucket: {e}")
 
-    ### DELETE A FILE FROM S3
-    def delete_file_from_s3(self, bucket_name, remote_file_name):
-        pass
+    ### DELETING A FILE FROM S3
+    def delete_file_from_bucket(self, bucket_name, remote_file_name):
+        print(f"Deleting '{remote_file_name}' from s3://{bucket_name}")
+        try:
+            self.s3_client.delete_object(
+                Bucket=self.s3_bucket_name,
+                Key=remote_file_name
+            )
+        except Exception as e:
+            print(f"Failed to upload a file from to the S3 bucket: {e}")
 
     ## DNS
     ### GETTING ALL HOSTING ZONES
@@ -603,6 +636,15 @@ class AwsManager:
                 key_pairs.append(key_pair)
         return key_pairs
 
+    def download_key_pair_from_s3(self, key_pair_name: str):
+        key_path = f"{self.home_folder}/{key_pair_name}.pem"
+        self.download_file_from_bucket(
+            bucket_name=self.s3_bucket_name,
+            remote_file_name=f"{key_pair_name}.pem",
+            local_file_name=key_path
+        )
+        os.chmod(f"{self.home_folder}/{key_pair_name}.pem", 0o400)
+
     def print_key_pairs(self, verbose: bool = False):
         key_pairs = self.get_key_pairs()
         if key_pairs:
@@ -641,6 +683,9 @@ class AwsManager:
             # 0x400 -r--------
             os.chmod(key_path, 0o400)
 
+            self.upload_file_to_bucket(bucket_name=self.s3_bucket_name,
+                                       local_file_name=key_path)
+
     ### DELETE A KEY PAIR
     def delete_key_pair(self, key_name: str):
         print(colored(f"Deleting the SSH key pair: {key_name}", 'yellow'))
@@ -651,6 +696,8 @@ class AwsManager:
         if os.path.exists(key_path):
             os.chmod(key_path, 0o600)
             os.remove(key_path)
+
+        self.delete_file_from_bucket(self.s3_bucket_name, file_name)
 
     ## SECURITY GROUPS
     ### GET SECURITY GROUPS
@@ -1095,13 +1142,6 @@ class AwsManager:
             instance = self.get_instance(new_instance['InstanceId'])
             instance.wait_until_running()
             print(f'The server is up and running at {colored(instance.public_ip_address, "green")}')
-            if poll_ssh:
-                print('Waiting until the SSH service is available...')
-                self.poll_ssh_status(instance.id)
-            identified_user_name = self.get_default_ami_user_name(instance.image_id)
-            key_path = f"{self.home_folder}/{key_pair_name}.pem"
-            print("Use the following command for connecting to the instance: " +
-                  colored(f"ssh {identified_user_name}@{instance.public_ip_address} -i {key_path}", 'green'))
             return instance
 
     def invoke_script(self, instance_id: str,
@@ -1183,6 +1223,7 @@ def main():
     instance_name = options.instance_name
 
     domain_name = options.fqdn
+    poll_ssh = options.poll_ssh
 
     aws_manager = AwsManager(aws_access_key_id=access_key_id,
                              aws_access_key_secret=access_key_secret,
@@ -1272,6 +1313,37 @@ def main():
             print(f"{len(images)} AMI images found")
         else:
             print('No images found')
+    elif options.connect:
+        if options.force_recreate_key:
+            aws_manager.delete_key_pair(key_name=key_pair_name)
+        try:
+            aws_manager.create_key_pair(key_name=key_pair_name)
+        except Exception as e:
+            if 'InvalidKeyPair.Duplicate' in f"{e}":
+                print(colored(f"The SSH key pair with the name '{key_pair_name}' already exists", 'yellow'))
+            else:
+                print(f"{type(e)} {e}")
+                exit(1)
+
+        instance_id = options.connect
+        print(f"Connecting to '{instance_id}'")
+        instance = aws_manager.get_instance(instance_id=instance_id)
+
+        if instance.key_name == key_pair_name:
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            if not os.path.exists(key_path):
+                aws_manager.download_key_pair_from_s3(key_pair_name)
+
+            if options.user:
+                user_name = options.user
+            else:
+                user_name = aws_manager.get_default_ami_user_name(instance.image_id)
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            os.system(f"ssh {user_name}@{instance.public_ip_address} -i {key_path}")
+        else:
+            print(colored("The instance's key name doesn't match the default one or the one specified "
+                  "with the --key-pair-name flag", 'red'))
+
     elif options.start:
         if options.force_recreate_key:
             aws_manager.delete_key_pair(key_name=key_pair_name)
@@ -1302,9 +1374,27 @@ def main():
                                           record_value=f"1 {new_instance.public_ip_address}",
                                           ttl=ttl)
         if options.invoke_script:
+            if poll_ssh:
+                print('Waiting until the SSH service is available...')
+                aws_manager.poll_ssh_status(new_instance.id)
+
             aws_manager.invoke_script(instance_id=new_instance.instance_id,
                                       file_name=options.invoke_script,
                                       parameters=options.invoke_script_argument)
+        if poll_ssh:
+            print('Waiting until the SSH service is available...')
+            aws_manager.poll_ssh_status(new_instance.id)
+            print("Connecting to the created instance")
+
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            if os.path.exists(key_path):
+                print("The private key already exists on the file system, use --force-recreate-key to overwrite")
+            else:
+                aws_manager.download_key_pair_from_s3(key_pair_name)
+
+            identified_user_name = aws_manager.get_default_ami_user_name(new_instance.image_id)
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            os.system(f"ssh {identified_user_name}@{new_instance.public_ip_address} -i {key_path}")
 
 
 if __name__ == '__main__':
