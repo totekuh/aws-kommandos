@@ -16,6 +16,7 @@ DEFAULT_KEY_NAME = 'kommandos-key'
 
 DEFAULT_DNS_TTL = 86400
 
+S3_BUCKET_NAME = "kommandos-bucket"
 KOMMANDOS_HOME_FOLDER = f'{os.path.expanduser("~")}/.aws-kommandos'
 
 if 'win' in sys.platform:
@@ -410,6 +411,7 @@ class AwsManager:
                  aws_access_key_secret: str = None,
                  region_name: str = None):
         self.home_folder = KOMMANDOS_HOME_FOLDER
+        self.s3_bucket_name = S3_BUCKET_NAME
         try:
             self.ec2 = boto3.resource('ec2', aws_access_key_id=aws_access_key_id,
                                       aws_secret_access_key=aws_access_key_secret,
@@ -420,14 +422,66 @@ class AwsManager:
             self.ec2_client = boto3.client('ec2', aws_access_key_id=aws_access_key_id,
                                            aws_secret_access_key=aws_access_key_secret,
                                            region_name=region_name)
-
+            self.s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id,
+                                          aws_secret_access_key=aws_access_key_secret,
+                                          region_name=region_name)
             if not os.path.exists(self.home_folder):
                 os.makedirs(self.home_folder)
                 print(f"The Kommandos's home folder has been created at '{self.home_folder}'. "
-                      f"The SSH private keys that are to be created by Kommandos will be stored there.")
+                      f"The SSH private keys to be created by Kommandos will be stored there.")
+
+            if not self.get_bucket(self.s3_bucket_name):
+                print("Creating a new Kommandos S3 bucket, as it doesn't seem to exist yet")
+                self.create_bucket(bucket_name=self.s3_bucket_name)
+
         except Exception as e:
             print(f"Kommandos initialization failed: {e}")
             exit(1)
+
+    ## S3 BUCKETS
+    ### GETTING ALL BUCKETS
+    def get_all_buckets(self):
+        return self.s3_client.list_buckets()['Buckets']
+
+    ### GETTING BUCKET BY NAME
+    def get_bucket(self, bucket_name: str):
+        buckets = self.get_all_buckets()
+        for bucket in buckets:
+            for k,v in bucket.items():
+                if 'Name' == k and bucket_name == v:
+                    return bucket
+
+    ### CREATING A BUCKET
+    def create_bucket(self, bucket_name: str):
+        print(f"Creating a new private S3 bucket with name '{bucket_name}'")
+        try:
+            self.s3_client.create_bucket(
+                ACL='private',
+                Bucket=bucket_name,
+                CreateBucketConfiguration={
+                    'LocationConstraint': self.s3_client.meta.region_name
+                }
+            )
+        except Exception as e:
+            if "you already own it" in f"{e}":
+                print(f"The S3 bucket '{bucket_name}' already exists")
+            else:
+                print(f"Failed to create a S3 bucket: {e}")
+
+    ### DELETING A BUCKET
+    def delete_bucket(self, bucket_name: str):
+        print(f"Deleting the S3 bucket: '{bucket_name}'")
+        try:
+            self.s3_client.delete_bucket(
+                Bucket=bucket_name
+            )
+        except Exception as e:
+            if "The specified bucket does not exist" in f"{e}":
+                print(f"The S3 bucket '{bucket_name}' doesn't exist")
+            else:
+                print(f"Failed to delete the S3 bucket: {e}")
+
+
 
     ## DNS
     ### GETTING ALL HOSTING ZONES
