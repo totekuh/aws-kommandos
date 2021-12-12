@@ -481,7 +481,28 @@ class AwsManager:
             else:
                 print(f"Failed to delete the S3 bucket: {e}")
 
+    ### GETTING A FILE FROM S3
+    def get_file_from_bucket(self, bucket_name, remote_file_name, local_file_name):
+        print(f"Downloading '{remote_file_name}' from s3://'{bucket_name}' to '{local_file_name}'")
+        try:
+            self.s3_client.download_file(
+                Bucket=bucket_name,
+                Key=remote_file_name,
+                Filename=local_file_name
+            )
+            if os.path.exists(local_file_name):
+                print("The file has been downloaded")
+        except Exception as e:
+            if "Not Found" in f"{e}":
+                print(f"The file '{remote_file_name}' has not been found on '{bucket_name}' bucket")
 
+    ### UPLOADING A FILE TO S3
+    def upload_file_to_bucket(self, bucket_name, local_file_name):
+        pass
+
+    ### DELETE A FILE FROM S3
+    def delete_file_from_s3(self, bucket_name, remote_file_name):
+        pass
 
     ## DNS
     ### GETTING ALL HOSTING ZONES
