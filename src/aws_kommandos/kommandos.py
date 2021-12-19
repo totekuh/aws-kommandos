@@ -1339,7 +1339,9 @@ def main():
             else:
                 user_name = aws_manager.get_default_ami_user_name(instance.image_id)
             key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-            os.system(f"ssh {user_name}@{instance.public_ip_address} -i {key_path}")
+            ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path}"
+            print(colored(f"Using the following command: {ssh_cmd}", 'green'))
+            os.system(ssh_cmd)
         else:
             print(colored("The instance's key name doesn't match the default one or the one specified "
                   "with the --key-pair-name flag", 'red'))
