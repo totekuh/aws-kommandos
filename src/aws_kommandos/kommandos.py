@@ -1066,11 +1066,13 @@ class AwsManager:
                 inst = {
                     'InstanceId': instance.id,
                     'PublicIpAddress': instance.public_ip_address,
-                    'KeyPairName': instance.key_pair.key_name,
                     'SecurityGroups': instance.security_groups
                 }
                 if name:
                     inst['Name'] = name
+
+                if instance.key_pair:
+                    inst['KeyPairName'] = instance.key_pair.key_name
 
                 if verbose:
                     inst['ImageId'] = instance.image_id
@@ -1329,22 +1331,25 @@ def main():
         print(f"Connecting to '{instance_id}'")
         instance = aws_manager.get_instance(instance_id=instance_id)
 
-        if instance.key_name == key_pair_name:
-            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-            if not os.path.exists(key_path):
-                aws_manager.download_key_pair_from_s3(key_pair_name)
+        if hasattr(instance, 'key_name') and instance.key_name:
+            if instance.key_name == key_pair_name:
+                key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+                if not os.path.exists(key_path):
+                    aws_manager.download_key_pair_from_s3(key_pair_name)
 
-            if options.user:
-                user_name = options.user
+                if options.user:
+                    user_name = options.user
+                else:
+                    user_name = aws_manager.get_default_ami_user_name(instance.image_id)
+                key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+                ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path}"
+                print(colored(f"Using the following command: {ssh_cmd}", 'green'))
+                os.system(ssh_cmd)
             else:
-                user_name = aws_manager.get_default_ami_user_name(instance.image_id)
-            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-            ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path}"
-            print(colored(f"Using the following command: {ssh_cmd}", 'green'))
-            os.system(ssh_cmd)
+                print(colored("The instance's key name doesn't match the default one or the one specified "
+                      "with the --key-pair-name flag", 'red'))
         else:
-            print(colored("The instance's key name doesn't match the default one or the one specified "
-                  "with the --key-pair-name flag", 'red'))
+            print(colored("The instance doesn't seem to have an SSH key pair attached", 'red'))
 
     elif options.start:
         if options.force_recreate_key:
