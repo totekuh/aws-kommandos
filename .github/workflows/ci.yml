@@ -5,11 +5,33 @@ on:
   push:
     branches:
       - master
+      - develop
 
 jobs:
+  publish-test-pypi:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    needs:
+      - build
+    steps:
+      - name: Publish distribution to Test PyPI
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.PYPI_TEST_API_TOKEN }}
+          repository_url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs:
+      - build
+    steps:
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@master
       - name: Set up Python 3.9
@@ -29,10 +51,6 @@ jobs:
           --sdist
           --wheel
           --outdir dist/
-      - name: Publish distribution to Test PyPI
-        uses: pypa/gh-action-pypi-publish@master
-        with:
-          password: ${{ secrets.PYPI_TEST_API_TOKEN }}
-          repository_url: https://test.pypi.org/legacy/
+
 
 
