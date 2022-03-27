@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 
+def read_version_from_git():
+    try:
+        from subprocess import check_output
+        tag = check_output(["git", "describe", "--abbrev=0", "--tags"])
+        chunks = tag.strip().split(".")
+        return f"{chunks[0]}.{chunks[1]}.{int(chunks[2]) + 1}"
+    except Exception as e:
+        default_version = "1.0.0"
+        print(f"Failed getting Git tag: {e}; will use default version: {default_version}")
+        return default_version
+
+print(read_version_from_git())
+
 """A setuptools based setup module.
 
 See:

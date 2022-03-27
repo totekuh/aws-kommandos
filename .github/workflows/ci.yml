@@ -76,7 +76,7 @@ jobs:
             VNUM2=${CURRENT_VERSION_PARTS[1]}
             VNUM3=${CURRENT_VERSION_PARTS[2]}
 
-            #create new tag
+            #create new tag 
             VNUM3_INCR=$((VNUM3+1))
             NEW_TAG="$VNUM1.$VNUM2.$VNUM3_INCR"
             echo "Updating $CURRENT_VERSION to $NEW_TAG"
