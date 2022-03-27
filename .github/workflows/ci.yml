@@ -23,8 +23,6 @@ jobs:
   publish-pypi:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
-    needs:
-      - build
     steps:
       - name: Publish distribution to PyPI
         uses: pypa/gh-action-pypi-publish@master
