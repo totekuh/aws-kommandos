@@ -136,6 +136,7 @@ def get_arguments():
     connect.add_argument('--connect',
                          dest='connect',
                          required=False,
+                         type=str,
                          help='Specify an instance-id to connect to. '
                               'The SSH port (22/tcp) should be reachable for doing that. '
                               "The private key is taken from the argument --key-pair-name and "
@@ -143,8 +144,16 @@ def get_arguments():
     connect.add_argument('--user',
                          dest='user',
                          required=False,
+                         type=str,
                          help='Specify a username to use while connecting to the instance via SSH. '
                               'If omitted, the default user name of the AMI image is used.')
+    connect.add_argument("--ssh-append",
+                         dest="ssh_append",
+                         required=False,
+                         type=str,
+                         help="Specify a string to append to the command used for establishing the SSH connection. "
+                              "If may be something like '-L 127.0.0.1:8080:127.0.0.1:8080' "
+                              "if you want to additionally forward the ports, for example.")
 
     # Route53 Managing Domains
     route53 = parser.add_argument_group('Route53 Domain Management')
@@ -1342,7 +1351,7 @@ def main():
                 else:
                     user_name = aws_manager.get_default_ami_user_name(instance.image_id)
                 key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-                ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path}"
+                ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path} {options.ssh_append}"
                 print(colored(f"Using the following command: {ssh_cmd}", 'green'))
                 os.system(ssh_cmd)
             else:
