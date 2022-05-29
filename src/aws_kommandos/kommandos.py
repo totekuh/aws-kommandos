@@ -12,7 +12,6 @@ from termcolor import colored
 DEFAULT_IMAGE_ID = 'ami-0b1deee75235aa4bb'
 DEFAULT_INSTANCE_TYPE = 't2.micro'
 DEFAULT_INSTANCE_NAME = 'kommandos-instance'
-DEFAULT_KEY_NAME = 'kommandos-key'
 
 DEFAULT_DNS_TTL = 86400
 
@@ -305,10 +304,9 @@ def get_arguments():
     ssh_keys.add_argument("--key-pair-name",
                           dest="key_pair_name",
                           required=False,
-                          default=DEFAULT_KEY_NAME,
                           type=str,
                           help="Specify the key pair name to use alongside the created instance. "
-                               f"Default is '{DEFAULT_KEY_NAME}'. "
+                               f"Default value is taken from --instance-name. "
                                f"The keys managed by Kommandos "
                                f"are stored under the '{KOMMANDOS_HOME_FOLDER}' directory "
                                f"and are uploaded to the Kommandos managed S3 bucket.")
@@ -1030,6 +1028,13 @@ class AwsManager:
                 return identified_user_name
 
     ## EC2 INSTANCES
+    def find_instance(self, instance_name: str):
+        filters = [{
+            'Name': 'tag:Name',
+            'Values': [instance_name]
+        }]
+        return self.ec2_client.describe_instances(Filters=filters)
+
     def poll_ssh_status(self, instance_id: str):
         instance = self.get_instance(instance_id)
         # try until connected
@@ -1325,46 +1330,45 @@ def main():
         else:
             print('No images found')
     elif options.connect:
-        if options.force_recreate_key:
-            aws_manager.delete_key_pair(key_name=key_pair_name)
-        try:
-            aws_manager.create_key_pair(key_name=key_pair_name)
-        except Exception as e:
-            if 'InvalidKeyPair.Duplicate' in f"{e}":
-                print(colored(f"The SSH key pair with the name '{key_pair_name}' already exists", 'yellow'))
-            else:
-                print(f"{type(e)} {e}")
-                exit(1)
-
         instance_id = options.connect
-        print(f"Connecting to '{instance_id}'")
         instance = aws_manager.get_instance(instance_id=instance_id)
 
-        if hasattr(instance, 'key_name') and instance.key_name:
-            if instance.key_name == key_pair_name:
-                key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-                if not os.path.exists(key_path):
-                    aws_manager.download_key_pair_from_s3(key_pair_name)
+        public_ip = instance.public_ip_address
+        print(f"Connecting to {public_ip}")
 
-                if options.user:
-                    user_name = options.user
-                else:
-                    user_name = aws_manager.get_default_ami_user_name(instance.image_id)
-                key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-                if options.ssh_append:
-                    append = options.ssh_append
-                else:
-                    append = ''
-                ssh_cmd = f"ssh {user_name}@{instance.public_ip_address} -i {key_path} {append}"
-                print(colored(f"Using the following command: {ssh_cmd}", 'green'))
-                os.system(ssh_cmd)
+        if hasattr(instance, 'key_name') and instance.key_name:
+            if not key_pair_name:
+                key_pair_name = instance.key_name
+
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            if not os.path.exists(key_path):
+                aws_manager.download_key_pair_from_s3(key_pair_name)
+
+            if options.user:
+                user_name = options.user
             else:
-                print(colored("The instance's key name doesn't match the default one or the one specified "
-                      "with the --key-pair-name flag", 'red'))
+                user_name = aws_manager.get_default_ami_user_name(instance.image_id)
+            key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
+            if options.ssh_append:
+                append = options.ssh_append
+            else:
+                append = ''
+            ssh_cmd = f"ssh {user_name}@{public_ip} -i {key_path} {append}"
+            print(colored(f"Using the following command: {ssh_cmd}", 'green'))
+            os.system(ssh_cmd)
         else:
             print(colored("The instance doesn't seem to have an SSH key pair attached", 'red'))
 
     elif options.start:
+        instances = aws_manager.find_instance(instance_name=instance_name)
+        if instances['Reservations']:
+            print(colored(f"An instance with the name '{instance_name}' already exists, "
+                          f"use --instance-name to override", 'red'))
+            exit(1)
+
+        if not key_pair_name:
+            key_pair_name = instance_name
+
         if options.force_recreate_key:
             aws_manager.delete_key_pair(key_name=key_pair_name)
         try:
@@ -1402,9 +1406,9 @@ def main():
                                       file_name=options.invoke_script,
                                       parameters=options.invoke_script_argument)
         if poll_ssh:
-            print('Waiting until the SSH service is available...')
+            print('Waiting until the SSH service becomes available...')
             aws_manager.poll_ssh_status(new_instance.id)
-            print("Connecting to the created instance")
+            print("Connecting to the newly created instance")
 
             key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
             if os.path.exists(key_path):
