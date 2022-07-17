@@ -11,7 +11,7 @@ https://github.com/pypa/sampleproject
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
 
-version = "1.0.8"
+version = "1.0.9"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()

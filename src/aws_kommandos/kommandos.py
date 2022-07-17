@@ -1233,6 +1233,10 @@ def main():
         access_key_secret = None
         region_name = None
 
+    # override the region if only --region-name has been supplied
+    if options.region_name:
+        region_name = options.region_name
+
     key_pair_name = options.key_pair_name
     image_id = options.image_id
     security_group_id = options.security_group_id
@@ -1353,7 +1357,7 @@ def main():
                 append = options.ssh_append
             else:
                 append = ''
-            ssh_cmd = f"ssh {user_name}@{public_ip} -i {key_path} {append}"
+            ssh_cmd = f"ssh -oStrictHostKeyChecking=no {user_name}@{public_ip} -i {key_path} {append}"
             print(colored(f"Using the following command: {ssh_cmd}", 'green'))
             os.system(ssh_cmd)
         else:
@@ -1418,7 +1422,7 @@ def main():
 
             identified_user_name = aws_manager.get_default_ami_user_name(new_instance.image_id)
             key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
-            os.system(f"ssh {identified_user_name}@{new_instance.public_ip_address} -i {key_path}")
+            os.system(f"ssh -oStrictHostKeyChecking=no {identified_user_name}@{new_instance.public_ip_address} -i {key_path}")
 
 
 if __name__ == '__main__':
