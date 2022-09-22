@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 
 """A setuptools based setup module.
 
@@ -154,13 +153,6 @@ setup(
     #     'boto3',
     #     'termcolor'
     # ],
-
-    # Kommandos invocation scripts
-    scripts=[  # Optional
-        "invocation-scripts/phishing-server/install.sh",
-        "invocation-scripts/vpn-server/install.sh",
-        "invocation-scripts/proxy-server/install.sh",
-    ],
 
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
