@@ -15,6 +15,9 @@ DEFAULT_INSTANCE_NAME = 'kommandos-instance'
 
 DEFAULT_DNS_TTL = 86400
 
+DEFAULT_BLOCK_DEVICE_NAME = "/dev/sda1"
+DEFAULT_VOLUME_SIZE = 10
+
 S3_BUCKET_NAME = "kommandos-bucket"
 KOMMANDOS_HOME_FOLDER = f'{os.path.expanduser("~")}/.aws-kommandos'
 
@@ -321,6 +324,25 @@ def get_arguments():
                           required=False,
                           help="Specify if the key pair must be deleted. "
                                "Takes the value from the --key-pair-name parameter.")
+
+    ebs_group = parser.add_argument_group('EBS')
+    ebs_group.add_argument('-bdn',
+                           '--block-device-name',
+                           dest='block_device_name',
+                           required=False,
+                           type=str,
+                           default=DEFAULT_BLOCK_DEVICE_NAME,
+                           help='Specify the block device name of the disk that will be attached to the instance. '
+                                f'Default is {DEFAULT_BLOCK_DEVICE_NAME} GB.')
+    ebs_group.add_argument('-vs',
+                           '--volume-size',
+                           dest='volume_size',
+                           required=False,
+                           type=int,
+                           default=DEFAULT_VOLUME_SIZE,
+                           help='Specify the volume size in GB of the disk that will be attached to the instance. '
+                                'Note, this disk will be deleted once its instance gets terminated. '
+                                f'Default is {DEFAULT_VOLUME_SIZE} GB.')
 
     options = parser.parse_args()
     if options.access_key_id and not options.access_key_secret:
@@ -1122,16 +1144,26 @@ class AwsManager:
                      security_group_id: str,
                      instance_type: str,
                      instance_name: str,
-                     disable_api_termination: bool = False,
-                     poll_ssh: bool = False):
+                     volume_size: int,
+                     block_device_name: str,
+                     disable_api_termination: bool = False):
         print(f'Starting a new instance: '
               f'{image_id} {key_pair_name} {security_group_id} {instance_type} {instance_name}')
+        print(f"EBS volume size is {volume_size} GB")
         if disable_api_termination:
             print(colored('API termination for that instance has been disabled', 'yellow'))
         response = self.ec2_client.run_instances(InstanceType=instance_type,
                                                  ImageId=image_id,
                                                  KeyName=key_pair_name,
                                                  SecurityGroupIds=[security_group_id],
+                                                 BlockDeviceMappings=[{
+                                                    'DeviceName': block_device_name,
+                                                    'Ebs': {
+                                                        'DeleteOnTermination': True,
+                                                        'VolumeSize': volume_size,
+                                                        'VolumeType': 'standard'
+                                                    }
+                                                 }],
                                                  TagSpecifications=[
                                                      {
                                                          'ResourceType': 'instance',
@@ -1389,8 +1421,9 @@ def main():
                                                 security_group_id=security_group_id,
                                                 instance_type=options.instance_type,
                                                 instance_name=instance_name,
-                                                disable_api_termination=options.disable_api_termination,
-                                                poll_ssh=options.poll_ssh)
+                                                volume_size=options.volume_size,
+                                                block_device_name=options.block_device_name,
+                                                disable_api_termination=options.disable_api_termination)
         if options.link_fqdn:
             ttl = options.ttl
             aws_manager.create_dns_record(hosted_zone_name=domain_name,
