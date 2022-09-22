@@ -7,6 +7,7 @@ import boto3
 from termcolor import colored
 
 from ami_kommandos import AMIKommandos
+from command_line import DEFAULT_SECURITY_GROUP_NAME
 from command_line import get_arguments
 from dns_kommandos import DnsKommandos
 from ec2_instance_kommandos import EC2InstanceKommandos
@@ -51,6 +52,7 @@ class AwsManager:
                 bucket_kommandos=self.bucket_kommandos
             )
             self.security_groups_kommandos = SecurityGroupsKommandos(
+                ec2=self.ec2,
                 ec2_client=self.ec2_client)
             self.ami_kommandos = AMIKommandos(
                 ec2_client=self.ec2_client
@@ -101,7 +103,7 @@ def main():
 
     key_pair_name = options.key_pair_name
     image_id = options.image_id
-    security_group_id = options.security_group_id
+
     instance_name = options.instance_name
 
     domain_name = options.fqdn
@@ -112,6 +114,20 @@ def main():
                              aws_access_key_id=access_key_id,
                              aws_access_key_secret=access_key_secret,
                              region_name=region_name)
+    security_group_id = options.security_group_id
+
+    if not security_group_id:
+        # fetch the default one or create it if it doesn't exist yet
+        security_group = \
+            aws_manager.security_groups_kommandos.get_security_group_by_name(
+                security_group_name=DEFAULT_SECURITY_GROUP_NAME)
+        if not security_group:
+            print(f"There's no default security group, creating one now")
+            security_group = \
+                aws_manager.security_groups_kommandos.create_security_group(
+                    group_name=DEFAULT_SECURITY_GROUP_NAME,
+                    description='Kommandos default security group')
+            security_group_id = security_group.group_id
 
     if options.get_ami:
         image = aws_manager.ami_kommandos.get_ami_image(image_id=image_id)
@@ -148,6 +164,7 @@ def main():
             description = f"{name}-generated-by-kommandos"
         aws_manager.security_groups_kommandos.create_security_group(group_name=name,
                                                                     description=description)
+
     if options.delete_security_group:
         aws_manager.security_groups_kommandos.delete_security_group(security_group_id=security_group_id)
 

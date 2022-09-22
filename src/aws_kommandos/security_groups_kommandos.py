@@ -8,7 +8,8 @@ from firewall_rule_request import FirewallRuleRequest
 
 
 class SecurityGroupsKommandos:
-    def __init__(self, ec2_client):
+    def __init__(self, ec2, ec2_client):
+        self.ec2 = ec2
         self.ec2_client = ec2_client
 
     ## SECURITY GROUPS
@@ -21,13 +22,25 @@ class SecurityGroupsKommandos:
                 security_groups.append(sg)
         return security_groups
 
-    def get_security_group(self, security_group_id: str):
+    def get_security_group_by_id(self, security_group_id: str):
         return self.ec2_client.describe_security_groups(
             Filters=[
                 {
                     'Name': 'group-id',
                     'Values': [
                         security_group_id,
+                    ]
+                },
+            ]
+        )['SecurityGroups']
+
+    def get_security_group_by_name(self, security_group_name: str):
+        return self.ec2_client.describe_security_groups(
+            Filters=[
+                {
+                    'Name': 'group-name',
+                    'Values': [
+                        security_group_name,
                     ]
                 },
             ]
@@ -68,9 +81,10 @@ class SecurityGroupsKommandos:
     ### CREATE A NEW SECURITY GROUP
     def create_security_group(self, group_name: str, description: str):
         try:
-            self.ec2.create_security_group(GroupName=group_name,
-                                           Description=description)
+            sec_group = self.ec2.create_security_group(GroupName=group_name,
+                                                       Description=description)
             print(colored(f"A new security group with the name '{group_name}' has been created", 'green'))
+            return sec_group
         except botocore.client.ClientError as e:
             if 'already exists' in f"{e}":
                 print(colored(f'The security group with name {group_name} already exists', 'yellow'))
@@ -173,7 +187,7 @@ class SecurityGroupsKommandos:
         # find the description if the one wasn't supplied
         description = ''
         if not firewall_rule_request.description:
-            sg = self.get_security_group(security_group_id=security_group_id)
+            sg = self.get_security_group_by_id(security_group_id=security_group_id)
             if sg and len(sg) == 1:
                 ip_permissions = sg[0]['IpPermissions']
                 for rule in ip_permissions:
@@ -222,7 +236,7 @@ class SecurityGroupsKommandos:
         # find the description if the one wasn't supplied
         description = ''
         if not firewall_rule_request.description:
-            sg = self.get_security_group(security_group_id=security_group_id)
+            sg = self.get_security_group_by_id(security_group_id=security_group_id)
             if sg and len(sg) == 1:
                 ip_permissions = sg[0]['IpPermissionsEgress']
                 for rule in ip_permissions:

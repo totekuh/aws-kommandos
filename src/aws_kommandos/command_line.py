@@ -14,6 +14,8 @@ DEFAULT_VOLUME_SIZE = 10
 S3_BUCKET_NAME = "kommandos-bucket"
 KOMMANDOS_HOME_FOLDER = f'{os.path.expanduser("~")}/.aws-kommandos'
 
+DEFAULT_SECURITY_GROUP_NAME = "kommandos-security-group"
+
 
 def get_arguments():
     from argparse import ArgumentParser
@@ -309,7 +311,9 @@ def get_arguments():
                           required=False,
                           type=str,
                           help="Specify the security group ID to use for a newly created instance "
-                               "or for changing firewall rules")
+                               "or for changing firewall rules. "
+                               f"If there's no security group given, kommandos will create one for you with the name "
+                               f"'{DEFAULT_SECURITY_GROUP_NAME}'.")
 
     ssh_keys = parser.add_argument_group('Managing SSH Keys')
     ssh_keys.add_argument("--key-pair-name",
@@ -395,9 +399,6 @@ def get_arguments():
                                  f"Use --help for more info.")
 
     if options.start:
-        if not options.security_group_id:
-            parser.error('The --security-group-id arg cannot be blank when requesting a new instance. '
-                         'Use --help for more info.')
         if options.invoke_script:
             if not os.path.exists(options.invoke_script):
                 parser.error("The script file you're providing with --invoke-script doesn't seem to exist")
@@ -411,12 +412,8 @@ def get_arguments():
         parser.error('The --security-group-id argument is required for deleting a security group. '
                      'Use --help for more info')
     if options.terminate and options.terminate_all:
-        parser.error("You must use either --terminate <instance-id> or --terminate-all. Because I said so."
+        parser.error("You must use either --terminate <instance-id> or --terminate-all. "
                      "Use --help for more info.")
-    if (options.allow_inbound or options.allow_outbound or options.delete_inbound or options.delete_outbound) \
-            and not options.security_group_id:
-        parser.error('The --security-group-id argument must be provided whenever you wanna change the firewall rules. '
-                     'Use --help for more info.')
 
     if options.add_record or options.delete_record:
         if not options.record_type:
