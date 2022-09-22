@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-from termcolor import colored
 from pprint import pprint
+
+from termcolor import colored
 
 
 class DnsKommandos:

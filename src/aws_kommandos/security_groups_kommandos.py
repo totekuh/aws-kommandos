@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-import botocore.client
 from pprint import pprint
+
+import botocore.client
 from termcolor import colored
+
 from firewall_rule_request import FirewallRuleRequest
+
 
 class SecurityGroupsKommandos:
     def __init__(self, ec2_client):
