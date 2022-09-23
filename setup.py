@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 
 """A setuptools based setup module.
 
@@ -11,7 +10,7 @@ https://github.com/pypa/sampleproject
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
 
-version = "1.0.10"
+version = "1.0.11"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -141,7 +140,9 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'boto3',
-        'termcolor'
+        'termcolor',
+        "pandas",
+        "numpy"
     ],  # Optional
 
     # A string or list of strings specifying what other distributions need to be present in order
@@ -154,13 +155,6 @@ setup(
     #     'boto3',
     #     'termcolor'
     # ],
-
-    # Kommandos invocation scripts
-    scripts=[  # Optional
-        "invocation-scripts/phishing-server/install.sh",
-        "invocation-scripts/vpn-server/install.sh",
-        "invocation-scripts/proxy-server/install.sh",
-    ],
 
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow

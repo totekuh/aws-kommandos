@@ -103,28 +103,6 @@ Use the following command for connecting to the instance: ssh ubuntu@18.197.229.
 Oh, and did I mention that if you don't have an SSH access key the script automatically creates one for you?
 Use *--force-recreate-key* to force the script into creating a new key even if one with the same name exists.
 
-### Start a new instance and invoke a bash script on remote
-
-```text
-╰$ aws-kommandos --security-group sg-66666666661488666 --start --invoke-script instance-scripts/proxy/invoke-fresh-install.sh 
-Creating a new SSH key pair: proxy-key
-The SSH key pair with the name 'proxy-key' already exists
-Starting a new instance: ami-0746eb3cb5c684ae6 proxy-key sg-030abb524637009f3 t2.micro proxy-instance
-The instance has been created
-Waiting for the server boot...
-The server is up and running at 18.184.160.55
-Waiting until the SSH service is available...
-The default user of the AMI 'ami-0746eb3cb5c684ae6' has been identified as 'ubuntu'
-Use the following command for connecting to the instance: ssh ubuntu@18.184.160.55 -i proxy-key.pem
-The default user of the AMI 'ami-0746eb3cb5c684ae6' has been identified as 'ubuntu'
-Invoking the instance-scripts/proxy/invoke-fresh-install.sh script on the instance hosted at 18.184.160.55
-...truncated - script output...
-Setting microsocks as a system service
-Created symlink /etc/systemd/system/multi-user.target.wants/microsocks.service → /lib/systemd/system/microsocks.service.
-All done
-The 'instance-scripts/proxy/invoke-fresh-install.sh' script has been invoked as ubuntu@18.184.160.55
-```
-
 ### Start a new instance and autoconfigure the DNS record sets
 This command starts a new instance and uses the domain name supplied with the *--fqdn* argument 
 to create A and MX record sets pointing to the IP address of the newly created EC2 instance.
