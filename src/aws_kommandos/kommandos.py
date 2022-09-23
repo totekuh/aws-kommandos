@@ -20,10 +20,9 @@ from ssh_key_pairs_kommandos import SSHKeyPairsKommandos
 if 'win' in sys.platform:
     print("Windows ain't supported")
     exit()
-
-pd.set_option("max_columns", None) # show all cols
-pd.set_option('max_colwidth', None) # show full width of showing cols
-pd.set_option("expand_frame_repr", False) # print cols side by side as it's supposed to be
+pd.options.styler.render.max_columns = None # show all cols
+pd.options.display.max_colwidth = None # show full width of showing cols
+pd.options.display.expand_frame_repr = False # print cols side by side as it's supposed to be
 pd.options.display.max_rows = 300
 
 class AwsManager:
