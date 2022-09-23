@@ -309,6 +309,8 @@ def main():
             key_path = f"{aws_manager.home_folder}/{key_pair_name}.pem"
             os.system(
                 f"ssh -oStrictHostKeyChecking=no {identified_user_name}@{new_instance.public_ip_address} -i {key_path}")
+    else:
+        print(f"Nothing to do. Specify specify a command. Use --help for more info.")
 
 
 if __name__ == '__main__':
