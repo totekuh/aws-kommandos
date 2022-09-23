@@ -3,6 +3,9 @@ import os
 import sys
 from pprint import pprint
 
+module_path = os.path.dirname(__file__)
+sys.path.append(module_path)
+
 import boto3
 import pandas as pd
 from termcolor import colored
