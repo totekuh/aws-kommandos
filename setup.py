@@ -140,7 +140,9 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'boto3',
-        'termcolor'
+        'termcolor',
+        "pandas",
+        "numpy"
     ],  # Optional
 
     # A string or list of strings specifying what other distributions need to be present in order

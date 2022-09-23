@@ -2,6 +2,7 @@
 import os
 import subprocess
 from pprint import pprint
+import pandas
 
 import botocore.client
 from termcolor import colored
@@ -61,7 +62,9 @@ class EC2InstanceKommandos:
     def print_running_instances(self, verbose: bool = False):
         instances = self.get_running_instances()
         if instances:
-            print('Running instances are:')
+            print()
+            print('> Running instances are:')
+            data = []
             for instance in instances:
                 name = ''
                 if hasattr(instance, 'tags') and instance.tags:
@@ -71,7 +74,7 @@ class EC2InstanceKommandos:
                 inst = {
                     'InstanceId': instance.id,
                     'PublicIpAddress': instance.public_ip_address,
-                    'SecurityGroups': instance.security_groups
+                    'SecurityGroups': [group['GroupId'] for group in instance.security_groups]
                 }
                 if name:
                     inst['Name'] = name
@@ -82,7 +85,8 @@ class EC2InstanceKommandos:
                 if verbose:
                     inst['ImageId'] = instance.image_id
 
-                pprint(inst, sort_dicts=False)
+                data.append(inst)
+            print(pandas.DataFrame(data))
         else:
             print('There are no running instances')
 

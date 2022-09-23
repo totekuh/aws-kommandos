@@ -2,6 +2,7 @@
 from pprint import pprint
 
 import botocore.client
+import pandas
 from termcolor import colored
 
 from firewall_rule_request import FirewallRuleRequest
@@ -56,27 +57,36 @@ class SecurityGroupsKommandos:
 
         security_groups = self.get_all_security_groups()
         if security_groups:
-            print('Security groups are:')
+            print()
+            print('> Security groups are:')
+            sec_group_data = []
+            ip_permissions_data = []
             for sg in security_groups:
-                ip_permissions = []
+                group_id = sg['GroupId']
+                group_name = sg['GroupName']
                 for rule in sg['IpPermissions']:
-                    ip_permissions.append(security_rule_to_string(rule))
+                    ip_permissions_data.append({'GroupName': group_name,
+                                                'IngressRule': security_rule_to_string(rule),
+                                                'EgressRule': ''})
 
-                ip_permissions_egress = []
                 for rule in sg['IpPermissionsEgress']:
-                    ip_permissions_egress.append(security_rule_to_string(rule))
+                    ip_permissions_data.append({'GroupName': group_name,
+                                                'IngressRule': '',
+                                                'EgressRule': security_rule_to_string(rule)})
 
-                group = {'GroupId': sg['GroupId'],
+                group = {'GroupId': group_id,
                          'GroupName': sg['GroupName'],
-                         'Description': sg['Description'],
-                         'IpPermissionsIngress': ip_permissions,
-                         'IpPermissionsEgress': ip_permissions_egress}
+                         'Description': sg['Description']}
 
                 if verbose:
                     group['OwnerId'] = sg['OwnerId']
                     group['VpcId'] = sg['VpcId']
 
-                pprint(group, sort_dicts=False)
+                sec_group_data.append(group)
+            print(pandas.DataFrame(sec_group_data))
+            print()
+            print("> IP permissions are:")
+            print(pandas.DataFrame(ip_permissions_data))
 
     ### CREATE A NEW SECURITY GROUP
     def create_security_group(self, group_name: str, description: str):

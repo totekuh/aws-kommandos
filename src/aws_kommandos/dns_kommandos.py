@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pprint import pprint
 
+import pandas
 from termcolor import colored
 
 
@@ -82,7 +83,10 @@ class DnsKommandos:
         hosted_zones = self.get_all_hosted_zones()
 
         if hosted_zones:
-            print("Hosting zones are:")
+            print()
+            print("> Hosting zones are:")
+            hosted_zone_data = []
+            record_sets_data = []
             for zone in hosted_zones:
                 hosted_zone_id = zone['Id']
                 hz = {
@@ -90,9 +94,17 @@ class DnsKommandos:
                     'HostedZoneId': hosted_zone_id,
                 }
                 if verbose:
-                    hz['ResourceRecordSets'] = self.get_record_sets(hosted_zone_id=hosted_zone_id)
-                    pprint(hz, sort_dicts=False)
-                else:
-                    print(hz)
+                    record_sets = self.get_record_sets(hosted_zone_id=hosted_zone_id)
+                    for record_set in record_sets:
+                        value = ";".join(record['Value'] for record in record_set['ResourceRecords'])
+                        record_set['ResourceRecords'] = value
+                        record_sets_data.append(record_set)
+                    record_sets_data.extend(record_sets)
+                hosted_zone_data.append(hz)
+            print(pandas.DataFrame(hosted_zone_data))
+            if verbose:
+                print()
+                print("> Record sets are:")
+                print(pandas.DataFrame(record_sets_data))
         else:
             print('No hosting zones found')

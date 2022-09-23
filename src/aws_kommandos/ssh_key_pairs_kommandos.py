@@ -2,6 +2,7 @@
 import os
 from pprint import pprint
 
+import pandas
 from termcolor import colored
 
 
@@ -32,7 +33,9 @@ class SSHKeyPairsKommandos:
     def print_key_pairs(self, verbose: bool = False):
         key_pairs = self.get_key_pairs()
         if key_pairs:
-            print('The SSH key pairs are:')
+            print()
+            print('> SSH key pairs are:')
+            data = []
             for kp in key_pairs:
                 key_name = kp['KeyName']
                 key = {
@@ -48,7 +51,8 @@ class SSHKeyPairsKommandos:
                 else:
                     key_local_path = '-'
                 key['KeyLocalPath'] = key_local_path
-                pprint(key, sort_dicts=False)
+                data.append(key)
+            print(pandas.DataFrame(data))
         else:
             print('There are no SSH key pairs')
 

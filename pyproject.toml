@@ -3,6 +3,8 @@ requires = [
     "setuptools>=42",
     "wheel",
     "boto3",
-    "termcolor"
+    "termcolor",
+    "pandas",
+    "numpy"
 ]
 build-backend = "setuptools.build_meta"

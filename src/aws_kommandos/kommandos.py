@@ -4,6 +4,7 @@ import sys
 from pprint import pprint
 
 import boto3
+import pandas as pd
 from termcolor import colored
 
 from ami_kommandos import AMIKommandos
@@ -20,6 +21,10 @@ if 'win' in sys.platform:
     print("Windows ain't supported")
     exit()
 
+pd.set_option("max_columns", None) # show all cols
+pd.set_option('max_colwidth', None) # show full width of showing cols
+pd.set_option("expand_frame_repr", False) # print cols side by side as it's supposed to be
+pd.options.display.max_rows = 300
 
 class AwsManager:
     def __init__(self,
@@ -187,11 +192,8 @@ def main():
 
     if options.stats:
         aws_manager.ec2_instance_kommandos.print_running_instances(verbose=options.verbose)
-        print('*' * 70)
         aws_manager.ssh_key_pairs_kommandos.print_key_pairs(verbose=options.verbose)
-        print('*' * 70)
         aws_manager.security_groups_kommandos.print_security_groups(verbose=options.verbose)
-        print('*' * 70)
         aws_manager.dns_kommandos.print_hosted_zones(verbose=options.verbose)
     elif options.search_ami:
         images = aws_manager.ami_kommandos.search_ami_images(query=options.search_ami)
