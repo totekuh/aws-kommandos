@@ -29,7 +29,7 @@ apt install python3 python3-pip
 pip3 install aws-kommandos
 ```
 
-Note: if you experience problems with `pandoc` after installing `aws-kommandos` via pip, try manually upgrading `pandoc` by executing the following command:
+Note: if you experience problems with `pandas` after installing `aws-kommandos` via pip, try manually upgrading `pandas` by executing the following command:
 
 ```bash
 pip3 install --upgrade --force-reinstall pandas
